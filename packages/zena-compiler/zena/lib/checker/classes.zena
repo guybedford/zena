@@ -6,7 +6,7 @@ import {
   AccessorDeclaration, BlockStatement, CaseClassParam, ClassDeclaration, Decorator, Expression, FieldDefinition, FieldInitializer, Identifier, MethodDefinition, MethodSignature, MixinDeclaration, Node, SealedVariant, SetterInfo, SourceLocation, SuperInitializer, TypeAnnotation, decoratorStringArg, hasEnsuresClause, isBuiltinDecoratorName, isSymbolFieldDeclaration, syntacticMemberName
 } from '../ast.zena';
 import {
-  BooleanType, ClassType, DecoratedField, ErrorType, FieldInfo, FunctionDeclInfo, FunctionType, I32Type, InterfaceType, MethodInfo, MixinType, OwnershipHandle, ReceiverKind, Type, TypeParameterType, VoidType, instantiateClassType, isNullableType, isScopedType, mentionsTypeParams, ownershipHandleInner, ownershipHandleOf, requiredParameterCount, scopedFieldNames, scopedInner, scopedTypeParamsOf, soleNonNullMember, typeCarriesOwner, typeToString
+  BooleanType, ClassType, DecoratedField, ErrorType, FieldInfo, FunctionDeclInfo, FunctionType, I32Type, InterfaceType, MethodInfo, MixinType, OwnershipHandle, ReceiverKind, Type, TypeParameterType, VoidType, instantiateClassType, isNullableType, isScopedType, mentionsTypeParams, ownershipHandleInner, ownershipHandleOf, refreshClassInstances, requiredParameterCount, scopedFieldNames, scopedInner, scopedTypeParamsOf, soleNonNullMember, typeCarriesOwner, typeToString
 } from '../types.zena';
 import { DiagnosticCode } from '../diagnostics.zena';
 import { SymbolId, noSymbolId } from '../scope/symbol.zena';
@@ -1852,6 +1852,10 @@ export function registerClassDeclaration(ctx: CheckerContext, cd: ClassDeclarati
   // no symbol is reported.
   recordSymbolKeyedMemberIdentities(
       ctx, classType as Type, classType.members, cd.body);
+
+  // A signature registered earlier may have instantiated this class
+  // while it was a shell.
+  refreshClassInstances(classType);
 
   ctx.exitClass();
   ctx.exitScope();

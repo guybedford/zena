@@ -1542,6 +1542,20 @@ export final class TypeListTable {
     return this;
   }
 
+  /** The value of every entry that has one. */
+  values(): Array<Type> {
+    let out = new Array<Type>();
+    for (let slot in this.#slots) {
+      if (slot != null) {
+        let value = slot.value;
+        if (value != null) {
+          out.push(value);
+        }
+      }
+    }
+    return out;
+  }
+
   /** The entry for `types` alone: `begin().addAll(types).entry()`. */
   at(types: Array<Type>): TypeListEntry {
     return this.begin().addAll(types).entry();
@@ -2019,11 +2033,16 @@ function substituteInType(
     }
     case UnionType {types}: {
       let newTypes = new Array<Type>();
+      var changed = false;
       for (let ut in types) {
-        let sub = substituteInType(ut, typeParameters, typeArguments);
-        newTypes.push((sub ?? ut));
+        let sub = substituteInType(ut, typeParameters, typeArguments) ?? ut;
+        newTypes.push(sub);
+        if (sub !== ut) {
+          changed = true;
+        }
       }
-      new UnionType(toGrowable(newTypes))
+      // Unchanged keeps its identity, which instance caches key on.
+      if (changed) new UnionType(toGrowable(newTypes)) else t
     }
     case RecordType as rec: {
       let newProps = new Map<String, Type>();
@@ -2735,6 +2754,35 @@ export function instantiateClassType(
   result.forwardVariantNames = source.forwardVariantNames;
   
   return result;
+}
+
+/**
+ * Rebuilds the instances of `template` made before it last changed
+ * shape. A signature registered before the template may have
+ * instantiated it as a shell, and substitution mints instances under
+ * keys nothing looks up again, so neither cache would refresh them.
+ */
+export function refreshClassInstances(template: ClassType): void {
+  let instantiations = template.instantiations;
+  if (instantiations != null) {
+    let stale = new Array<Array<Type>>();
+    for (let entry in instantiations) {
+      let typeArguments = entry.value.typeArguments;
+      if (typeArguments != null) {
+        stale.push(typeArguments);
+      }
+    }
+    for (let typeArguments in stale) {
+      instantiateClassType(template, typeArguments);
+    }
+  }
+  let cache = template.substitutionCache;
+  if (cache != null) {
+    let noArguments = new Array<Type>();
+    for (let inst in cache.values()) {
+      substituteInType(inst, null, noArguments);
+    }
+  }
 }
 
 /**

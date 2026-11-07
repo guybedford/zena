@@ -1,6 +1,6 @@
 // Fixture for tw-bindings_test.zena: an extension class declared
-// before its parent, and a specialized parent before a type its
-// constructor names.
+// before its parent, and a specialized parent before a generic type
+// its constructor names.
 
 @external("tw:js/global", "make()", "tw")
 declare function make(): externref;
@@ -19,13 +19,17 @@ export extension class Digest extends Stream<externref | null> {
 
 export extension class Stream<W> on externref {
   new wrap(value: externref) : super(value);
-  new withSink(sink: Sink<externref | null>) : super(sink as externref);
+  new withSink(sink: Sink<externref | null>) : super(streamNew<W>(sink));
 }
 
 export extension class Sink<W> on externref {}
 
-export function main(): i32 {
+@external("tw:js/global", "Stream.new<{W}>(Sink<Any?>)", "tw")
+declare function streamNew<W>(sink: Sink<externref | null>): externref;
+
+export function main(s: Sink<externref | null>): i32 {
   let c = new Child();
   let d = new Digest();
+  let t = new Stream<externref | null>.withSink(s);
   return 0;
 }
