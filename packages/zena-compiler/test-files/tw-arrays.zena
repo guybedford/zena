@@ -1,0 +1,43 @@
+// Fixture for tw-bindings_test.zena: Strings inside a tw value's arrays
+// and tuples cross as their JS string handles, copied per instantiation.
+
+@external("tw:js/global", "first<{T}>(T[])", "tw")
+declare function first<T>(items: FixedArray<T>): T;
+
+@external("tw:js/global", "reversed<{T}>(T[])", "tw")
+declare function reversed<T>(items: FixedArray<T>): FixedArray<T>;
+
+@external("tw:js/global", "rows<{T}>(T[][])", "tw")
+declare function rows<T>(rows: FixedArray<FixedArray<T>>): FixedArray<FixedArray<T>>;
+
+@external("tw:js/global", "entries<{K},{V}>((K,V)[])", "tw")
+declare function entries<K, V>(entries: FixedArray<(K, V)>): FixedArray<(K, V)>;
+
+@external("tw:js/global", "singles<{T}>((T,)[])", "tw")
+declare function singles<T>(items: FixedArray<T>): FixedArray<T>;
+
+@external("tw:js/global", "maybe<{T}>(T[]?)", "tw")
+declare function maybe<T>(items: Option<FixedArray<T>>): Option<FixedArray<T>>;
+
+@export("echo<{T}>(T[])", "tw")
+export function echo<T>(items: FixedArray<T>): FixedArray<T> {
+  return items;
+}
+
+@export("pairs((str,f64)[])", "tw")
+export function pairs(p: FixedArray<(String, f64)>): FixedArray<(String, f64)> {
+  return p;
+}
+
+export function main(): f64 {
+  let s = first<String>(["a"]);
+  let n = first<f64>([1.0]);
+  let r = reversed<String>(["a", "b"]);
+  let g = rows<String>([["a"]]);
+  let e = entries<String, f64>([("a", 1.0)]);
+  let o = singles<String>(["a"]);
+  let m = maybe<String>(some<FixedArray<String>>(["a"]));
+  let x = echo<String>(["a"]);
+  return n + (s.length as f64) + (r.length as f64) + (g.length as f64) + (e.length as f64) +
+      (o.length as f64) + (x.length as f64);
+}

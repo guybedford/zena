@@ -19,7 +19,7 @@ import {
 } from '../../ast.zena';
 import {
   WasmStruct, WasmField, WasmGlobal, WasmFunction, WasmTag, RecordDispatchInfo, TypeTestSite,
-  isRefTo, TwOption, TwOptionKind,
+  isRefTo, TwOption, TwOptionKind, TwConv, TwConvKind, asWasmArray, WasmArray,
 } from '../wasm-module.zena';
 import {
   ValType, ValTypeVoid, ValTypeRefNull, ValTypeAnyRef, ValTypeEqRef, ValTypeStructRef, ValTypeRef, ValTypeI32, ValTypeI64, ValTypeF32, ValTypeF64, ValTypeExternRef, ValTypeRefExtern, isRefValType,
@@ -42,7 +42,7 @@ import { growable } from 'zena:core';
 import { targetUsesJsStrings } from '../../targets.zena';
 import {
   ExternalImportSpec, externalImportSpec, literalExternalName, twExportOptions,
-  parseExternalNameTemplate, renderExternalName,
+  parseExternalNameTemplate, renderExternalName, arrayElement,
 } from '../../external-name.zena';
 
 /**
@@ -4131,13 +4131,23 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
         }
       }
     }
+    var paramConvs: GrowableArray<TwConv | null> | null = null;
     for (var i = 0; i < params.length; i += 1) {
       let vt = params[i];
       let opt = if (paramOptions != null) paramOptions[i] else null;
+      let conv = if (opt == null && params.length == funcType.parameters.length) {
+        this.#twConv(funcType.parameters[i])
+      } else {
+        null
+      };
       if (opt != null) {
         for (let raw in opt.raw()) {
           rawParams.push(raw);
         }
+        converts = true;
+      } else if (conv != null) {
+        paramConvs = twConvAt(paramConvs, params.length, i, conv);
+        rawParams.push(conv.wire);
         converts = true;
       } else if (st != null && isRefTo(vt, st as WasmStruct)) {
         rawParams.push(new ValTypeExternRef());
@@ -4151,7 +4161,16 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
     } else {
       null
     };
+    let resultConv = if (resultOption == null && returns.length == 1) {
+      this.#twConv(funcType.returnType)
+    } else {
+      null
+    };
     let rawReturns = new Array<ValType>();
+    if (resultConv != null) {
+      rawReturns.push(resultConv.wire);
+      converts = true;
+    }
     if (resultOption != null) {
       for (let raw in resultOption.raw()) {
         rawReturns.push(raw);
@@ -4164,7 +4183,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
       }
     }
     for (let vt in returns) {
-      if (resultOption != null) {
+      if (resultOption != null || resultConv != null) {
         break;
       }
       if (st != null && isRefTo(vt, st as WasmStruct)) {
@@ -4202,6 +4221,8 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
     wrapperFunc.importWrapperTw = true;
     wrapperFunc.twParamOptions = paramOptions;
     wrapperFunc.twResultOption = resultOption;
+    wrapperFunc.twParamConvs = paramConvs;
+    wrapperFunc.twResultConv = resultConv;
     wrapperFunc.twThrows = tag;
     wasm.addFunction(wrapperFunc);
     return wrapperFunc;
@@ -4319,11 +4340,17 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
     var converts = false;
     var usesString = false;
     var paramOptions: GrowableArray<TwOption | null> | null = null;
+    var paramConvs: GrowableArray<TwConv | null> | null = null;
     let rawParams = new Array<ValType>();
     let aligned = params.length == funcType.parameters.length;
     for (var i = 0; i < params.length; i += 1) {
       let opt = if (aligned) this.#twOption(name, funcType.parameters[i], model) else null;
-      if (opt != null) {
+      let conv = if (aligned && opt == null) this.#twConv(funcType.parameters[i]) else null;
+      if (conv != null) {
+        paramConvs = twConvAt(paramConvs, params.length, i, conv);
+        rawParams.push(conv.wire);
+        converts = true;
+      } else if (opt != null) {
         if (paramOptions == null) {
           let all = new Array<TwOption | null>();
           for (var j = 0; j < params.length; j += 1) {
@@ -4346,8 +4373,12 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
       }
     }
     let resultOption = if (returns.length == 1) this.#twOption(name, funcType.returnType, model) else null;
+    let resultConv = if (returns.length == 1 && resultOption == null) this.#twConv(funcType.returnType) else null;
     let rawReturns = new Array<ValType>();
-    if (resultOption != null) {
+    if (resultConv != null) {
+      rawReturns.push(resultConv.wire);
+      converts = true;
+    } else if (resultOption != null) {
       for (let raw in resultOption.raw()) {
         rawReturns.push(raw);
       }
@@ -4378,6 +4409,8 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
     wrapper.twExportWrapper = true;
     wrapper.twParamOptions = paramOptions;
     wrapper.twResultOption = resultOption;
+    wrapper.twParamConvs = paramConvs;
+    wrapper.twResultConv = resultConv;
     wasm.addFunction(wrapper);
     this.pass.markFunctionReached(wrapper);
     return wrapper;
@@ -4435,7 +4468,77 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
       this.pass.specializer.instantiateClassType(ct, this.pass.getClassModel(ct));
       this.queueExplicitCtor(ct, "<constructor>");
     }
-    return new TwOption(kind, niche, someCt, noneCt, payload, isString);
+    let opt = new TwOption(kind, niche, someCt, noneCt, payload, isString);
+    if (kind == TwOptionKind.Ref && !isString) {
+      opt.conv = this.#twConv(payloadType);
+    }
+    return opt;
+  }
+
+  /**
+   * How a `tw` import carries `t`, when it is an array or tuple holding
+   * `String`s: they cross as their JS string handles inside it too, so
+   * it's copied into the layout of the IR's `str` in their place. The
+   * `String` class is reached, since the copy builds them from handles.
+   */
+  #twConv(t: Type): TwConv | null {
+    let conv = this.#twConvOf(t);
+    return if (conv != null && conv.kind != TwConvKind.String) conv else null;
+  }
+
+  #twConvOf(t: Type): TwConv | null {
+    let wasm = this.pass.wasm;
+    let u = unwrapAliases(t);
+    let element = arrayElement(u);
+    if (element != null) {
+      let part = this.#twConvOf(element as Type);
+      if (part == null) {
+        return null;
+      }
+      let zena = typeToValType(wasm, u);
+      let arr = asWasmArray(zena);
+      if (arr == null) {
+        return null;
+      }
+      let wireArr = wasm.getArray((part as TwConv).wire, (arr as WasmArray).isMutable);
+      let wire: ValType = if (zena is ValTypeRefNull) new ValTypeRefNull(wireArr) else new ValTypeRef(wireArr);
+      return new TwConv(TwConvKind.Array, zena, wire, growable<TwConv | null>([part]));
+    }
+    return match (u) {
+      case ClassType as ct: {
+        if (isWellKnown(WellKnown.StringClass, ct.name, ct.sourcePath)) {
+          let sc = wasm.stringClass as ClassType;
+          this.pass.specializer.instantiateClassType(sc, this.pass.getClassModel(sc));
+          this.queueExplicitCtor(sc, "<constructor>.#fromHandle");
+          new TwConv(TwConvKind.String, typeToValType(wasm, u), new ValTypeExternRef(),
+              new Array<TwConv | null>())
+        } else {
+          null
+        }
+      }
+      case TupleType {elementTypes}: {
+        let parts = new Array<TwConv | null>();
+        let fields = new Array<WasmField>();
+        var converts = false;
+        for (var i = 0; i < elementTypes.length; i += 1) {
+          let vt = typeToValType(wasm, elementTypes[i]);
+          if (vt is ValTypeVoid) {
+            continue;
+          }
+          let part = this.#twConvOf(elementTypes[i]);
+          parts.push(part);
+          fields.push(new WasmField(i32ToString(i), if (part != null) part.wire else vt, false));
+          converts = converts || part != null;
+        }
+        if (converts) {
+          new TwConv(TwConvKind.Tuple, typeToValType(wasm, u),
+              new ValTypeRef(wasm.getStruct(null, fields)), parts)
+        } else {
+          null
+        }
+      }
+      case _: null
+    };
   }
 
   registerStringHashHelper(model: SemanticModel): void {
@@ -4692,4 +4795,18 @@ function isForInRangeLiteral(model: SemanticModel,
   }
   let t = model.getNodeType(range);
   return t is ClassType && isIterableRangeClass(t);
+}
+
+/** `convs`, made one per parameter if null, with `conv` at `i`. */
+function twConvAt(convs: GrowableArray<TwConv | null> | null, n: i32, i: i32,
+    conv: TwConv): GrowableArray<TwConv | null> {
+  let all = if (convs != null) convs else {
+    let made = new Array<TwConv | null>();
+    for (var j = 0; j < n; j += 1) {
+      made.push(null);
+    }
+    made
+  };
+  all[i] = conv;
+  return all;
 }

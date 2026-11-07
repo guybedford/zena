@@ -549,13 +549,22 @@ export final class TwOption {
   payload: ValType;
   /** A `String` payload, which crosses as its JS string handle. */
   isString: boolean;
+  /** How a reference payload holding `String`s in arrays or tuples crosses. */
+  var conv: TwConv | null = null;
   new(this.kind, this.niche, this.some, this.none, this.payload, this.isString);
 
   /** The import's values for one `Option<T>`. */
   raw(): GrowableArray<ValType> {
     return match (this.kind) {
       case TwOptionKind.Ref: {
-        let vt: ValType = if (this.isString) new ValTypeExternRef() else nullableRef(this.payload);
+        let conv = this.conv;
+        let vt: ValType = if (this.isString) {
+          new ValTypeExternRef()
+        } else if (conv != null) {
+          nullableRef(conv.wire)
+        } else {
+          nullableRef(this.payload)
+        };
         growable<ValType>([vt])
       }
       case TwOptionKind.Niche: growable<ValType>([this.payload])
@@ -565,6 +574,28 @@ export final class TwOption {
 }
 
 export enum TwOptionKind { Ref, Niche, Flag }
+
+/**
+ * How a `tw` import carries an array or tuple holding `String`s: they
+ * cross as their JS string handles there too, so the value is copied
+ * into its wire layout element by element and field by field (IR.md
+ * §11), where it otherwise crosses as itself.
+ */
+export final class TwConv {
+  kind: TwConvKind;
+  /** The value's Zena wasm type. */
+  zena: ValType;
+  /** Its wasm type on the wire. */
+  wire: ValType;
+  /**
+   * An array's element conversion, or a tuple's per struct field; null
+   * for one crossing as itself.
+   */
+  parts: GrowableArray<TwConv | null>;
+  new(this.kind, this.zena, this.wire, this.parts);
+}
+
+export enum TwConvKind { String, Array, Tuple }
 
 /** `vt`, admitting null. */
 export function nullableRef(vt: ValType): ValType {
@@ -756,6 +787,13 @@ export final class WasmFunction implements Hashable {
   var twParamOptions: GrowableArray<TwOption | null> | null = null;
   /** How the wrapper's `Option<T>` result crosses, if it has one. */
   var twResultOption: TwOption | null = null;
+  /**
+   * Per parameter of a `tw` wrapper, how it carries an array or tuple
+   * holding `String`s; null when no parameter is one.
+   */
+  var twParamConvs: GrowableArray<TwConv | null> | null = null;
+  /** How the wrapper's array or tuple result holding `String`s crosses. */
+  var twResultConv: TwConv | null = null;
   /**
    * The wrapper is a `tw` export's (`@export(name, "tw")`): the bridge
    * calls it, and it calls `importWrapperTarget`, converting the other

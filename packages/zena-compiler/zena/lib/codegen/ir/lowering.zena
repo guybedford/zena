@@ -41,7 +41,7 @@ import { ValType, ValTypeVoid, ValTypeI32, ValTypeI64, ValTypeF32, ValTypeF64, V
 import { targetUsesJsStrings } from '../../targets.zena';
 import {
   WasmModule, WasmFunction, WasmStruct, WasmField, WasmGlobal, WasmSignature, ClassCodegenInfo, isValSubtype, sortWasmFields, RecordDispatchInfo, asWasmStruct, asWasmSignature, asWasmArray, valTypeIdentical, ClosureForwarderSpec, ExplosionSpec, AdaptationPack,
-  noCaptures, TwOption, TwOptionKind, WasmTag,
+  noCaptures, TwOption, TwOptionKind, TwConv, TwConvKind, WasmTag, WasmArray, nullableRef,
 } from '../wasm-module.zena';
 import {
   typeToValType, typeToValTypeWithSub, eraseTypeParameters, substituteTypeParamsInClassContext, substituteTypeParamsInFunctionContext, InlineLayout, inlineLayoutOf, inlineParamLayoutOf, inlineRecordParamOf, inlineRecordResultOf, getInterfaceTypeParameters, substituteTypeParamsInCodegen, nestedInlineTuple, nestedInlineRecord, flattenInlineTuple, recordFieldsTuple, recordFieldNames, inlineRecordFieldsLayout, boxedRecordWithFields, boxedFieldType, pathIndex, getClosureStruct, getClosureKey, getNonNullableType, recordWasmFields, sortedOptionalNames, interfaceCallSlotName,
@@ -235,6 +235,7 @@ function lowerTwImportWrapper(wasm: WasmModule, func: WasmFunction) {
   b.switchTo(entry);
   let args = new Array<i32>();
   let options = func.twParamOptions;
+  let convs = func.twParamConvs;
   var at = 0;
   for (var i = 0; i < params.length; i += 1) {
     let opt = if (options != null) options[i] else null;
@@ -243,6 +244,12 @@ function lowerTwImportWrapper(wasm: WasmModule, func: WasmFunction) {
         args.push(v);
       }
       at += opt.raw().length;
+      continue;
+    }
+    let conv = if (convs != null) convs[i] else null;
+    if (conv != null) {
+      args.push(twConvert(wasm, b, conv, true, params[i], conv.wire));
+      at += 1;
       continue;
     }
     let have = func.signature.params[i];
@@ -284,6 +291,11 @@ function lowerTwImportWrapper(wasm: WasmModule, func: WasmFunction) {
     b.ret(twOptionFromRaw(wasm, b, resultOption, wants[0], raws));
     return b.finish();
   }
+  let resultConv = func.twResultConv;
+  if (resultConv != null) {
+    b.ret(twConvert(wasm, b, resultConv, false, raws[0], wants[0]));
+    return b.finish();
+  }
   let results = new Array<i32>();
   for (var i = 0; i < wants.length; i += 1) {
     let want = wants[i];
@@ -318,6 +330,7 @@ function lowerTwExportWrapper(wasm: WasmModule, func: WasmFunction) {
   b.switchTo(entry);
   let args = new Array<i32>();
   let options = func.twParamOptions;
+  let convs = func.twParamConvs;
   var at = 0;
   for (var i = 0; i < target.signature.params.length; i += 1) {
     let want = target.signature.params[i];
@@ -330,6 +343,12 @@ function lowerTwExportWrapper(wasm: WasmModule, func: WasmFunction) {
       }
       args.push(twOptionFromRaw(wasm, b, opt, want, mine));
       at += n;
+      continue;
+    }
+    let conv = if (convs != null) convs[i] else null;
+    if (conv != null) {
+      args.push(twConvert(wasm, b, conv, false, raws[at], want));
+      at += 1;
       continue;
     }
     let st = asWasmStruct(want);
@@ -364,11 +383,14 @@ function lowerTwExportWrapper(wasm: WasmModule, func: WasmFunction) {
     b.callFuncMulti(funcRef, args, returns)
   };
   let resultOption = func.twResultOption;
+  let resultConv = func.twResultConv;
   let out = new Array<i32>();
   if (resultOption != null) {
     for (let v in twOptionToRaw(wasm, b, resultOption, values[0])) {
       out.push(v);
     }
+  } else if (resultConv != null) {
+    out.push(twConvert(wasm, b, resultConv, true, values[0], resultConv.wire));
   } else {
     for (var i = 0; i < values.length; i += 1) {
       let st = asWasmStruct(returns[i]);
@@ -519,6 +541,10 @@ function twOptionToRaw(wasm: WasmModule, b: IrBuilder, opt: TwOption,
     }
     v = twStringHandle(b, sst as WasmStruct, v);
   }
+  let conv = opt.conv;
+  if (conv != null) {
+    v = twConvert(wasm, b, conv, true, v, conv.wire);
+  }
   let someVals = match (opt.kind) {
     case TwOptionKind.Flag: growable<i32>([b.constI32(1, i32vt), v])
     case _: growable<i32>([v])
@@ -560,8 +586,13 @@ function twOptionFromRaw(wasm: WasmModule, b: IrBuilder, opt: TwOption,
     case TwOptionKind.Flag: raws[1]
     case _: raws[0]
   };
+  let conv = opt.conv;
   if (opt.isString) {
     v = twStringFromHandle(wasm, b, opt.payload, v);
+  } else if (conv != null) {
+    // Present, so not null: converted as the non-null wire value.
+    v = b.emit(IrOp.ref_as_non_null, nonNullRef(conv.wire), v, -1);
+    v = twConvert(wasm, b, conv, false, v, field.type);
   } else if (opt.kind == TwOptionKind.Ref && !isNullableRef(field.type)) {
     v = b.emit(IrOp.ref_as_non_null, field.type, v, -1);
   }
@@ -583,6 +614,85 @@ function isNullableRef(vt: ValType): boolean {
     case ValTypeRef: false
     case ValTypeRefExtern: false
     case _: true
+  };
+}
+
+/**
+ * `value` copied from its Zena layout to its wire one (`toWire`) or
+ * back by `conv`, as a value of type `want`; null stays null.
+ */
+function twConvert(wasm: WasmModule, b: IrBuilder, conv: TwConv, toWire: boolean,
+    value: i32, want: ValType): i32 {
+  if (conv.kind == TwConvKind.String) {
+    if (toWire) {
+      return twStringHandle(b, asWasmStruct(conv.zena) as WasmStruct, value);
+    }
+    return twStringFromHandle(wasm, b, want, value);
+  }
+  let have = b.body.resultType(value) as ValType;
+  if (!(have is ValTypeRefNull)) {
+    return twConvertRef(wasm, b, conv, toWire, value, want);
+  }
+  let isNull = b.emit(IrOp.ref_is_null, new ValTypeI32() as ValType, value, -1);
+  let nullB = b.newBlock();
+  let someB = b.newBlock();
+  let mergeB = b.newBlock();
+  let result = b.blockParam(mergeB, nullableRef(want));
+  b.brIf(isNull, nullB, new Array<i32>(), someB, new Array<i32>());
+  b.switchTo(someB);
+  let nonNull = b.emit(IrOp.ref_as_non_null, nonNullRef(have), value, -1);
+  b.br(mergeB, growable<i32>([twConvertRef(wasm, b, conv, toWire, nonNull, want)]));
+  b.switchTo(nullB);
+  b.br(mergeB, growable<i32>([b.emit(IrOp.ref_null, nullableRef(want), -1, -1)]));
+  b.switchTo(mergeB);
+  return result;
+}
+
+/** A non-null array or tuple `value` copied by `conv`. */
+function twConvertRef(wasm: WasmModule, b: IrBuilder, conv: TwConv, toWire: boolean,
+    value: i32, want: ValType): i32 {
+  let i32vt = new ValTypeI32() as ValType;
+  if (conv.kind == TwConvKind.Tuple) {
+    let from = asWasmStruct(b.body.resultType(value) as ValType) as WasmStruct;
+    let to = asWasmStruct(want) as WasmStruct;
+    let values = new Array<i32>();
+    for (var k = 0; k < from.fields.length; k += 1) {
+      let f = from.fields[k];
+      let v = b.emit(IrOp.struct_get, f.type, value,
+          b.addRef(new IrRefField(from, f.name as String)));
+      let p = conv.parts[k];
+      values.push(if (p != null) twConvert(wasm, b, p, toWire, v, to.fields[k].type) else v);
+    }
+    return b.emit(IrOp.struct_new, new ValTypeRef(to) as ValType, b.pushArgList(values),
+        b.addRef(new IrRefType(to)));
+  }
+  let from = asWasmArray(b.body.resultType(value) as ValType) as WasmArray;
+  let to = asWasmArray(want) as WasmArray;
+  let toVt = new ValTypeRef(to) as ValType;
+  let len = b.emit(IrOp.array_len, i32vt, value, -1);
+  let made = b.emit(IrOp.array_new, toVt, b.pushExtra(growable<i32>([len, -1])),
+      b.addRef(new IrRefType(to)));
+  let header = b.newBlock();
+  let i = b.blockParam(header, i32vt);
+  b.br(header, growable<i32>([b.constI32(0, i32vt)]));
+  b.switchTo(header);
+  let bodyB = b.newBlock();
+  let exitB = b.newBlock();
+  b.brIf(b.binary(IrOp.i32_lt_s, i32vt, i, len), bodyB, new Array<i32>(), exitB, new Array<i32>());
+  b.switchTo(bodyB);
+  let element = b.emit(IrOp.array_get, from.elementType, value, i);
+  let converted = twConvert(wasm, b, conv.parts[0] as TwConv, toWire, element, to.elementType);
+  b.emitVoid(IrOp.array_set, b.pushExtra(growable<i32>([made, i, converted])), -1);
+  b.br(header, growable<i32>([b.binary(IrOp.i32_add, i32vt, i, b.constI32(1, i32vt))]));
+  b.switchTo(exitB);
+  return made;
+}
+
+function nonNullRef(vt: ValType): ValType {
+  return match (vt) {
+    case ValTypeRefNull as r: new ValTypeRef(r.target)
+    case ValTypeExternRef: new ValTypeRefExtern()
+    case _: vt
   };
 }
 

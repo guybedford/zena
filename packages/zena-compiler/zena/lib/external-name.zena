@@ -310,7 +310,7 @@ export function crossesNested(name: String, ft: FunctionType): boolean {
  * The element type of an array, a `FixedArray` (an extension class on
  * one) included, or null.
  */
-function arrayElement(t: Type): Type | null {
+export function arrayElement(t: Type): Type | null {
   return match (t) {
     case ArrayType {elementType}: elementType
     case ClassType as ct: {
@@ -363,40 +363,31 @@ function nestedMentionsAny(ts: Array<Type>, name: String, inside: boolean): bool
 
 /**
  * Why `t` doesn't cross as a field or element of a `tw` import's value,
- * or null when its Zena layout is its wire: a `String` is a struct there
- * rather than its JS string handle, and an `Option` a class rather than
- * the IR's `T?`.
+ * or null when it does: an `Option` is a class there rather than the
+ * IR's `T?`. (A `String` is copied out to its JS string handle.)
  */
-export function nestedCrossingProblem(t: Type, isString: (ct: ClassType) => boolean): String | null {
+export function nestedCrossingProblem(t: Type): String | null {
   let element = arrayElement(t);
   if (element != null) {
-    return nestedCrossingProblem(element, isString);
-  }
-  if (t is UnionType) {
-    if (optionPayload(t.types) != null) {
-      return "is an Option, which crosses inside an array or tuple as a Zena class rather than the IR's T?";
-    }
-    return nestedProblemAll(t.types, isString);
+    return nestedCrossingProblem(element);
   }
   return match (t) {
-    case ClassType as ct: {
-      if (isString(ct)) {
-        "is a String, which crosses inside an array or tuple as a Zena struct rather than its JS string handle"
+    case UnionType {types}: {
+      if (optionPayload(types) != null) {
+        "is an Option, which crosses inside an array or tuple as a Zena class rather than the IR's T?"
       } else {
-        null
+        nestedProblemAll(types)
       }
     }
-    case TupleType {elementTypes}: nestedProblemAll(elementTypes, isString)
-    case TypeAliasType as ta: {
-      if (ta.isDistinct) null else nestedCrossingProblem(unwrapAliases(ta), isString)
-    }
+    case TupleType {elementTypes}: nestedProblemAll(elementTypes)
+    case TypeAliasType as ta: if (ta.isDistinct) null else nestedCrossingProblem(unwrapAliases(ta))
     case _: null
   };
 }
 
-function nestedProblemAll(ts: Array<Type>, isString: (ct: ClassType) => boolean): String | null {
+function nestedProblemAll(ts: Array<Type>): String | null {
   for (let t in ts) {
-    let problem = nestedCrossingProblem(t, isString);
+    let problem = nestedCrossingProblem(t);
     if (problem != null) {
       return problem;
     }
@@ -415,11 +406,11 @@ export function twArgumentProblem(name: String, ft: FunctionType, t: Type,
     return problem;
   }
   if (crossesNested(name, ft)) {
-    return nestedCrossingProblem(t, isString);
+    return nestedCrossingProblem(t);
   }
   // A whole array's elements cross as elements.
   let element = arrayElement(t);
-  return if (element != null) nestedCrossingProblem(element, isString) else null;
+  return if (element != null) nestedCrossingProblem(element) else null;
 }
 
 function valueMentions(t: Type, name: String): boolean {

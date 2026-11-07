@@ -40,6 +40,22 @@ function importsAt(wat: String, name: String, sig: String): boolean {
   return false;
 }
 
+/** The index of the anonymous type `def` in the WAT, or -1. */
+function typeIndex(wat: String, def: String): i32 {
+  for (var n = 0; n < 64; n += 1) {
+    if (wat.contains(`(type (;${n};) ${def})`)) {
+      return n;
+    }
+  }
+  return -1;
+}
+
+/** Whether the WAT exports `name` at the function type `sig`. */
+function exportedAt(wat: String, name: String, sig: String): boolean {
+  let parts = wat.split(`(export "${name}" (func $`);
+  return parts.length == 2 && exportsAt(wat, name, parts[1].split('))')[0], sig);
+}
+
 export let tests = suite('tw bindings', () => {
   test('generic imports instantiate from generic extension members', (ctx) => {
     let wat = compileWat('extension-generic-external');
@@ -80,6 +96,30 @@ export let tests = suite('tw bindings', () => {
     ]) {
       isTrue(importsAt(wat, name, sig), `${name} imports as ${sig}`);
     }
+  });
+
+  test('Strings in arrays and tuples cross as their JS string handles', (ctx) => {
+    let wat = compileWat('tw-arrays');
+    let strs = typeIndex(wat, '(array (mut externref))');
+    let rows = typeIndex(wat, `(array (mut (ref null ${strs})))`);
+    let pair = typeIndex(wat, '(struct (field externref) (field f64))');
+    let pairs = typeIndex(wat, `(array (mut (ref null ${pair})))`);
+    isTrue(strs >= 0 && rows >= 0 && pair >= 0 && pairs >= 0, 'the wire types');
+    for (let (name, sig) in [
+      ('first<str>(T[])', `(param (ref ${strs})) (result externref)`),
+      ('reversed<str>(T[])', `(param (ref ${strs})) (result (ref ${strs}))`),
+      ('rows<str>(T[][])', `(param (ref ${rows})) (result (ref ${rows}))`),
+      ('entries<str,f64>((K,V)[])', `(param (ref ${pairs})) (result (ref ${pairs}))`),
+      // Zena has no 1-tuple, so (T,)[] is T[].
+      ('singles<str>((T,)[])', `(param (ref ${strs})) (result (ref ${strs}))`),
+      ('maybe<str>(T[]?)', `(param (ref null ${strs})) (result (ref null ${strs}))`),
+    ]) {
+      isTrue(importsAt(wat, name, sig), `${name} imports as ${sig}`);
+    }
+    isTrue(exportedAt(wat, 'echo<str>(T[])', `(param (ref ${strs})) (result (ref ${strs}))`),
+        'a generic export');
+    isTrue(exportedAt(wat, 'pairs((str,f64)[])', `(param (ref ${pairs})) (result (ref ${pairs}))`),
+        'an export of tuples');
   });
 
   test('a tw tag is imported for its throwing import and exports', (ctx) => {
