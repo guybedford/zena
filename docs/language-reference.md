@@ -5502,11 +5502,12 @@ instantiation from its import name:
 | ------------------------------------------------------------------ | -------------------------- |
 | `i32`, `u32`, `i64`, `u64`, `f32`, `f64`, `i8`, `u8`, `i16`, `u16` | the same name              |
 | `boolean`                                                          | `bool`                     |
+| `void`                                                             | `unit`                     |
 | `String`                                                           | `str`                      |
 | `externref`                                                        | `Any`                      |
 | `T \| null`                                                        | `T?`                       |
 | `Option<T>`                                                        | `T?`                       |
-| `array<T>`                                                         | `T[]`                      |
+| `array<T>`                                                         | `arr<T>`                   |
 | `(A, B)`                                                           | `(A,B)`                    |
 | `(A,)` (one element)                                               | `(A,)`                     |
 | `(a: A, b: B) => R`                                                | `fn(A,B)->R`               |
