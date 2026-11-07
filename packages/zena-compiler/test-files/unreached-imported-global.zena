@@ -1,0 +1,13 @@
+// Fixture for tw-bindings_test.zena: an imported library global
+// that only an unreached function names.
+
+import { Option, None, none } from 'zena:core';
+
+function unreached(arm: i32): Option<f64> {
+  return none;
+}
+
+export function main(x: i32): i32 {
+  let s = 'x';
+  return x;
+}

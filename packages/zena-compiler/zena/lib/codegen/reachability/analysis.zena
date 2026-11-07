@@ -2114,6 +2114,10 @@ export final class ReachabilityAnalysis implements ReachabilityContext {
     for (let g in this.wasm.globals) {
       if (g.symbolId == noSymbolId || this.reachedGlobals.has(g.symbolId)) {
         keptGlobals.push(g);
+      } else {
+        // Unit initializers look globals up by symbol, so a pruned
+        // one must not stay findable there.
+        this.wasm.globalMap.delete(g.symbolId);
       }
     }
     while (this.wasm.globals.length > 0) { this.wasm.globals.pop(); }

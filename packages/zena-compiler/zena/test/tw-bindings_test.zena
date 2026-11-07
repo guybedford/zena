@@ -28,4 +28,8 @@ export let tests = suite('tw bindings', () => {
       isTrue(wat.contains(want), `missing ${want}`);
     }
   });
+
+  test('an imported global only unreached code names', (ctx) => {
+    compileWat('unreached-imported-global');
+  });
 });
