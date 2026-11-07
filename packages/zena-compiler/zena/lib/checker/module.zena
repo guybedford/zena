@@ -5,9 +5,10 @@ import {
   ClassDeclaration, DeclareFunction, EnumDeclaration, ExportAllDeclaration,
   ExportFromDeclaration, FunctionDeclaration, FunctionExpression,
   IdentifierPattern, ImportDeclaration, InterfaceDeclaration,
-  MixinDeclaration, Module, Node, Pattern, RecordPattern, RestPattern,
+  MixinDeclaration, Module, NamedTypeAnnotation, Node, Pattern, RecordPattern,
+  RestPattern,
   SetterInfo, SourceLocation, Statement, SymbolDeclaration, TuplePattern,
-  TypeAliasDeclaration, VariableDeclaration
+  TypeAliasDeclaration, TypeAnnotation, VariableDeclaration
 } from '../ast.zena';
 import {
   AnyRefType, ArrayType, ExternRefType, FunctionType, I32Type, Type,
@@ -530,6 +531,30 @@ export function checkModule(
  * member signatures exist before any body is checked. The result
  * carries the module's context to finishModule.
  */
+/**
+ * A class inherits its extension `on` type, finality and resource-ness
+ * from its superclass when it registers, so a superclass declared
+ * later in the same module registers first.
+ */
+function registerClassAfterSuper(
+    ctx: CheckerContext, cd: ClassDeclaration,
+    byName: HashMap<String, ClassDeclaration>,
+    registered: HashSet<i32>): void {
+  if (registered.has(cd.id as i32)) {
+    return;
+  }
+  registered.add(cd.id as i32);
+  let {superClass} = cd;
+  if (superClass != null) {
+    if (let NamedTypeAnnotation {name} = superClass as TypeAnnotation) {
+      if (let (true, parent) = byName.get(name)) {
+        registerClassAfterSuper(ctx, parent, byName, registered);
+      }
+    }
+  }
+  registerClassDeclaration(ctx, cd);
+}
+
 export function beginModule(
   ast: Module,
   scopeResult: ScopeResult,
@@ -661,10 +686,19 @@ export function beginModule(
   for (let implicitImport in scopeResult.implicitImportDeclarations) {
     checkStatement(ctx, implicitImport);
   }
+  let classesByName = new HashMap<String, ClassDeclaration>();
+  for (let stmt in ast.body) {
+    if (stmt is ClassDeclaration) {
+      classesByName[stmt.name.name] = stmt;
+    }
+  }
+  let registeredClasses = new HashSet<i32>();
   for (let stmt in ast.body) {
     match (stmt) {
       case ImportDeclaration {}: { checkStatement(ctx, stmt); }
-      case ClassDeclaration as cd: { registerClassDeclaration(ctx, cd); }
+      case ClassDeclaration as cd: {
+        registerClassAfterSuper(ctx, cd, classesByName, registeredClasses);
+      }
       case InterfaceDeclaration as id: { checkInterfaceDeclaration(ctx, id); }
       case EnumDeclaration as ed: { checkEnumDeclaration(ctx, ed); }
       case MixinDeclaration as md: { registerMixinDeclaration(ctx, md); }

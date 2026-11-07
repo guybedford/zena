@@ -29,6 +29,10 @@ export let tests = suite('tw bindings', () => {
     }
   });
 
+  test('extension classes declared before their parents', (ctx) => {
+    compileWat('extension-declaration-order');
+  });
+
   test('an imported global only unreached code names', (ctx) => {
     compileWat('unreached-imported-global');
   });
