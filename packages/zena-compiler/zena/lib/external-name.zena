@@ -152,7 +152,35 @@ function nullableSpelling(types: Array<Type>,
   if (types[1] is NullType) {
     return suffixSpelling(types[0], "?", isString);
   }
+  let payload = optionPayload(types);
+  if (payload != null) {
+    return suffixSpelling(payload, "?", isString);
+  }
   return null;
+}
+
+/**
+ * `T` for the arms of an `Option<T>`, `Some<T> | None`, which a `tw`
+ * import carries as the IR's `T?`.
+ */
+export function optionPayload(types: Array<Type>): Type | null {
+  if (types.length != 2) {
+    return null;
+  }
+  var payload: Type | null = null;
+  var hasNone = false;
+  for (let t in types) {
+    if (t is ClassType) {
+      let typeArguments = t.typeArguments;
+      if (isWellKnown(WellKnown.SomeClass, t.name, t.sourcePath) &&
+          typeArguments != null && typeArguments.length == 1) {
+        payload = typeArguments[0];
+      } else if (isWellKnown(WellKnown.NoneClass, t.name, t.sourcePath)) {
+        hasNone = true;
+      }
+    }
+  }
+  return if (hasNone) payload else null;
 }
 
 function functionSpelling(ft: FunctionType,
@@ -303,6 +331,12 @@ export function twCrossingProblem(t: Type, isString: (ct: ClassType) => boolean)
 }
 
 function structIn(t: Type, isString: (ct: ClassType) => boolean): String | null {
+  if (t is UnionType) {
+    let payload = optionPayload(t.types);
+    if (payload != null) {
+      return structIn(payload, isString);
+    }
+  }
   return match (t) {
     case ClassType as ct: {
       if (!ct.isExtension && !isString(ct) && ct.name != "array") {

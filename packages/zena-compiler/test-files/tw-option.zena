@@ -7,6 +7,9 @@ declare function find<V>(map: externref, key: String): Option<V>;
 @external("tw:js/global", "Map#put<{V}>(V?)", "tw")
 declare function put<V>(map: externref, value: Option<V>): void;
 
+@external("tw:js/global", "id<{T}>(T)", "tw")
+declare function id<T>(value: T): T;
+
 export extension class Host on externref {}
 
 export function main(map: externref): i32 {
@@ -20,5 +23,6 @@ export function main(map: externref): i32 {
   put<boolean>(map, d);
   put<i32>(map, some<i32>(1));
   put<i32>(map, none);
+  id<Option<f64>>(a);
   return if (let Some {value} = a) value as i32 else 0;
 }

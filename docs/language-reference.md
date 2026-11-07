@@ -5497,6 +5497,7 @@ instantiation from its import name:
 | `String`                                                           | `str`                      |
 | `externref`                                                        | `Any`                      |
 | `T \| null`                                                        | `T?`                       |
+| `Option<T>`                                                        | `T?`                       |
 | `array<T>`                                                         | `T[]`                      |
 | `(A, B)`                                                           | `(A,B)`                    |
 | `(A,)` (one element)                                               | `(A,)`                     |
