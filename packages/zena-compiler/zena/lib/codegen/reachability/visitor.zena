@@ -19,6 +19,7 @@ import {
 } from '../../ast.zena';
 import {
   WasmStruct, WasmField, WasmGlobal, WasmFunction, RecordDispatchInfo, TypeTestSite,
+  isRefTo,
 } from '../wasm-module.zena';
 import {
   ValType, ValTypeVoid, ValTypeRefNull, ValTypeAnyRef, ValTypeEqRef, ValTypeStructRef, ValTypeRef, ValTypeI32, ValTypeI64, ValTypeF32, ValTypeF64, ValTypeExternRef, ValTypeRefExtern, isRefValType,
@@ -4037,6 +4038,11 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
       }
     }
 
+    if (spec.isTw) {
+      return this.#createTwImport(decl, model, spec, importName, functionName,
+          params, returns);
+    }
+
     var isGcRef = false;
     if (returns.length == 1) {
       match (returns[0]) {
@@ -4072,6 +4078,61 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
     wrapperFunc.name = functionName;
     wrapperFunc.importWrapperTarget = importFunc;
     this.pass.wasm.addFunction(wrapperFunc);
+    return wrapperFunc;
+  }
+
+  /**
+   * A `tw` import (external-name.zena): the provider is a Wasm module,
+   * so every type crosses as itself except `String`, which crosses as
+   * its JS string handle. The declared function is a wrapper converting
+   * those, or the import itself when nothing needs converting.
+   */
+  #createTwImport(decl: DeclareFunction, model: SemanticModel,
+      spec: ExternalImportSpec, importName: String, functionName: String,
+      params: GrowableArray<ValType>, returns: GrowableArray<ValType>): WasmFunction {
+    let wasm = this.pass.wasm;
+    let st = wasm.twStringStruct();
+    var converts = false;
+    let rawParams = new Array<ValType>();
+    for (let vt in params) {
+      if (st != null && isRefTo(vt, st as WasmStruct)) {
+        rawParams.push(new ValTypeExternRef());
+        converts = true;
+      } else {
+        rawParams.push(vt);
+      }
+    }
+    let rawReturns = new Array<ValType>();
+    for (let vt in returns) {
+      if (st != null && isRefTo(vt, st as WasmStruct)) {
+        rawReturns.push(new ValTypeExternRef());
+        converts = true;
+        let sc = wasm.stringClass as ClassType;
+        this.pass.specializer.instantiateClassType(sc, this.pass.getClassModel(sc));
+        this.queueExplicitCtor(sc, "<constructor>.#fromHandle");
+      } else {
+        rawReturns.push(vt);
+      }
+    }
+    let importFunc = new WasmFunction(wasm.getSignature(rawParams, rawReturns), decl, model);
+    importFunc.isImport = true;
+    importFunc.importModule = spec.module;
+    importFunc.importName = importName;
+    importFunc.importIsAsync = spec.isAsync;
+    importFunc.importCanonType = spec.canonType;
+    wasm.functionImports.push(importFunc);
+    if (!converts) {
+      if (functionName != decl.name.name) {
+        importFunc.name = functionName;
+      }
+      return importFunc;
+    }
+    importFunc.name = `${functionName}_raw_import`;
+    let wrapperFunc = new WasmFunction(wasm.getSignature(params, returns), decl, model);
+    wrapperFunc.name = functionName;
+    wrapperFunc.importWrapperTarget = importFunc;
+    wrapperFunc.importWrapperTw = true;
+    wasm.addFunction(wrapperFunc);
     return wrapperFunc;
   }
 

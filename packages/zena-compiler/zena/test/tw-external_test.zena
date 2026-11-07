@@ -1,0 +1,54 @@
+/**
+ * `@external` with the `tw` option (external-name.zena): reference
+ * results keep their own types, and a `String` crosses as its JS string
+ * handle.
+ */
+
+import { suite, test, TestContext } from 'zena:test';
+import { equal, isTrue } from 'zena:assert';
+import { readFileSync } from 'zena:fs';
+import { compileFile } from '../lib/compile-file.zena';
+import { stdlibRoot } from './test-utils.zena';
+
+let entry = 'packages/zena-compiler/test-files/tw-external.zena';
+let outPath = 'packages/zena-compiler/zena/out/tw-external.wat';
+
+/** Each import's name and its function type, from the compiled WAT. */
+function importSignatures() {
+  equal(compileFile({entry, outPath, target: 'js', stdlibRoot}), 0);
+  let wat = readFileSync(outPath);
+  let lines = wat.split('\n');
+  var out = '';
+  for (let line in lines) {
+    if (!line.startsWith('  (import "tw:js/global"') && !line.startsWith('  (import "env"')) {
+      continue;
+    }
+    let name = line.split('"')[3];
+    let typeIdx = line.split('(type ')[1].split(')')[0];
+    for (let t in lines) {
+      if (t.startsWith(`  (type (;${typeIdx};)`)) {
+        let sig = t.split(`(;${typeIdx};) `)[1];
+        out = `${out}${name} ${sig.sliceBytes(0, sig.length - 1)}\n`;
+      }
+    }
+  }
+  return out;
+}
+
+export let tests = suite('tw @external', () => {
+  test('String crosses as a handle, references as themselves', (ctx) => {
+    let sigs = importSignatures();
+    for (let want in [
+      'Headers.new() (func (result externref))\n',
+      'Headers#set(str,str) (func (param externref) (param externref) (param externref))\n',
+      'Headers#get(str) (func (param externref) (param externref) (result externref))\n',
+      'pair() (func (result i32) (result externref))\n',
+      'id<str>(T) (func (param externref) (result externref))\n',
+      // Without `tw`, a GC reference result crosses as externref.
+      'hostBytes (func (result externref))\n',
+      'bytes() (func (result (ref ',
+    ]) {
+      isTrue(sigs.contains(want), `missing ${want} in\n${sigs}`);
+    }
+  });
+});

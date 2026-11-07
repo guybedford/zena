@@ -251,7 +251,13 @@ export final class ExternalImportSpec {
   name: String;
   isAsync: boolean;
   canonType: String;
-  new(this.module, this.name, this.isAsync, this.canonType);
+  /**
+   * `tw`: the provider is a ts-gen `tw` bridge, a Wasm module rather
+   * than JS. Reference results cross as their own types, and a `String`
+   * crosses as its JS string handle (the IR's `str` on the host carrier).
+   */
+  isTw: boolean;
+  new(this.module, this.name, this.isAsync, this.canonType, this.isTw);
 }
 
 /** The `@external` decorator of `decl`, or null when it has none. */
@@ -264,6 +270,7 @@ export function externalImportSpec(decl: DeclareFunction): ExternalImportSpec | 
       throw new Error("External decorator must have two or three arguments");
     }
     var isAsync = false;
+    var isTw = false;
     var canonType = "";
     // A third argument is the import's canonical options, comma
     // separated. `async` is one; a WIT type spelling (`stream<u8>`,
@@ -296,6 +303,8 @@ export function externalImportSpec(decl: DeclareFunction): ExternalImportSpec | 
       for (let option in optionList) {
         if (option == "async") {
           isAsync = true;
+        } else if (option == "tw") {
+          isTw = true;
         } else if (option.startsWith("stream") ||
             option.startsWith("future") ||
             option.startsWith("resource:") ||
@@ -305,14 +314,14 @@ export function externalImportSpec(decl: DeclareFunction): ExternalImportSpec | 
           throw new Error(
             "Unknown @external option '" + option + "' on '" +
             decl.name.name + "' (expected 'async', a stream/" +
-            "future type like 'stream<u8>', a " +
+            "future type like 'stream<u8>', 'tw', a " +
             "'resource:<interface>#<name>' reference, or a " +
             "'return:<interface>#<type>' result type)");
         }
       }
     }
     return new ExternalImportSpec(decoratorStringArg(dec, 0) ?? "",
-        decoratorStringArg(dec, 1) ?? "", isAsync, canonType);
+        decoratorStringArg(dec, 1) ?? "", isAsync, canonType, isTw);
   }
   return null;
 }

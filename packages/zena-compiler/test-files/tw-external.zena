@@ -1,0 +1,37 @@
+// Fixture for tw-external_test.zena: `@external` imports with the `tw`
+// option, whose provider is a Wasm module (a ts-gen tw bridge).
+
+distinct type Headers = externref;
+
+@external("tw:js/global", "Headers#get(str)", "tw")
+declare function headersGet(h: Headers, name: String): String | null;
+
+@external("tw:js/global", "Headers#set(str,str)", "tw")
+declare function headersSet(h: Headers, name: String, value: String): void;
+
+@external("tw:js/global", "Headers.new()", "tw")
+declare function headersNew(): Headers;
+
+@external("tw:js/global", "bytes()", "tw")
+declare function bytes(): array<var u8>;
+
+@external("tw:js/global", "pair()", "tw")
+declare function pair(): inline (i32, String);
+
+@external("tw:js/global", "id<{T}>(T)", "tw")
+declare function id<T>(value: T): T;
+
+@external("env", "hostBytes")
+declare function hostBytes(): array<var u8>;
+
+export function main(): i32 {
+  let h = headersNew();
+  headersSet(h, 'a', 'b');
+  let got = headersGet(h, 'a');
+  let (n, s) = pair();
+  let echoed = id<String>('x');
+  let host = hostBytes();
+  let mine = bytes();
+  return n + s.length + echoed.length + host.length + mine.length +
+      (if (got == null) 0 else got.length);
+}

@@ -177,7 +177,10 @@ function kindTagOf(e: Expression) {
  * inlined at call sites) so the declared function keeps one uniform
  * callable identity — vtable slots and function values reference it.
  */
-function lowerImportWrapper(func: WasmFunction) {
+function lowerImportWrapper(wasm: WasmModule, func: WasmFunction) {
+  if (func.importWrapperTw) {
+    return lowerTwImportWrapper(wasm, func);
+  }
   let target = func.importWrapperTarget as WasmFunction;
   let b = new IrBuilder();
   let entry = b.newBlock();
@@ -210,6 +213,131 @@ function lowerImportWrapper(func: WasmFunction) {
   }
   b.ret(result);
   return b.finish();
+}
+
+/**
+ * A `tw` import wrapper's body (external-name.zena): forward the params
+ * with each `String` replaced by its JS string handle, call the import,
+ * and wrap each handle result back into a `String`. Everything else
+ * crosses unchanged.
+ */
+function lowerTwImportWrapper(wasm: WasmModule, func: WasmFunction) {
+  let target = func.importWrapperTarget as WasmFunction;
+  let b = new IrBuilder();
+  let entry = b.newBlock();
+  let params = new Array<i32>();
+  for (let vt in func.signature.params) {
+    params.push(b.blockParam(entry, vt));
+  }
+  b.switchTo(entry);
+  let args = new Array<i32>();
+  for (var i = 0; i < params.length; i += 1) {
+    let have = func.signature.params[i];
+    let st = asWasmStruct(have);
+    if (st != null && target.signature.params[i] is ValTypeExternRef) {
+      args.push(twStringHandle(b, st as WasmStruct, params[i]));
+    } else {
+      args.push(params[i]);
+    }
+  }
+  let funcRef = b.addRef(new IrRefFunc(target));
+  let wants = func.signature.returns;
+  if (wants.length == 0) {
+    b.callFunc(funcRef, args, null);
+    b.retVoid();
+    return b.finish();
+  }
+  let rawTypes = new Array<ValType>();
+  for (let vt in target.signature.returns) {
+    rawTypes.push(vt);
+  }
+  let raws = if (wants.length == 1) {
+    growable<i32>([b.callFunc(funcRef, args, rawTypes[0])])
+  } else {
+    b.callFuncMulti(funcRef, args, rawTypes)
+  };
+  let results = new Array<i32>();
+  for (var i = 0; i < wants.length; i += 1) {
+    let want = wants[i];
+    let st = asWasmStruct(want);
+    if (st != null && rawTypes[i] is ValTypeExternRef) {
+      results.push(twStringFromHandle(wasm, b, want, raws[i]));
+    } else {
+      results.push(raws[i]);
+    }
+  }
+  if (results.length == 1) {
+    b.ret(results[0]);
+  } else {
+    b.retMulti(results);
+  }
+  return b.finish();
+}
+
+/** The JS string handle of a `String` value, null for null. */
+function twStringHandle(b: IrBuilder, st: WasmStruct, value: i32): i32 {
+  var fieldName: String | null = null;
+  for (let f in st.fields) {
+    let n = f.name;
+    if (n != null && (n as String).endsWith('::#handle')) {
+      fieldName = n;
+    }
+  }
+  if (fieldName == null) {
+    throw new ZirUnsupported('tw import: String has no handle');
+  }
+  let field = b.addRef(new IrRefField(st, fieldName as String));
+  let ext = new ValTypeExternRef() as ValType;
+  let vt = b.body.resultType(value) as ValType;
+  if (!(vt is ValTypeRefNull)) {
+    return b.emit(IrOp.struct_get, ext, value, field);
+  }
+  let isNull = b.emit(IrOp.ref_is_null, new ValTypeI32() as ValType, value, -1);
+  let nullB = b.newBlock();
+  let someB = b.newBlock();
+  let mergeB = b.newBlock();
+  b.brIf(isNull, nullB, new Array<i32>(), someB, new Array<i32>());
+  b.switchTo(someB);
+  let nonNull = b.emit(IrOp.ref_as_non_null, new ValTypeRef(st) as ValType, value, -1);
+  let handle = b.emit(IrOp.struct_get, ext, nonNull, field);
+  let result = b.blockParam(mergeB, ext);
+  b.br(mergeB, growable<i32>([handle]));
+  b.switchTo(nullB);
+  b.br(mergeB, growable<i32>([b.emit(IrOp.ref_null, ext, -1, -1)]));
+  b.switchTo(mergeB);
+  return result;
+}
+
+/**
+ * A `String` around a JS string handle, through the constructor string
+ * literals use; for a nullable `want`, null for a null handle.
+ */
+function twStringFromHandle(wasm: WasmModule, b: IrBuilder, want: ValType,
+    handle: i32): i32 {
+  let sKey = getClassKey(wasm.stringClass as ClassType);
+  let ctorKey = getClassMethodKey(sKey, "<constructor>.#fromHandle");
+  let ctor = if (let (true, c) = wasm.classMethodMap.get(ctorKey)) c else null;
+  if (ctor == null) {
+    throw new ZirUnsupported('tw import: String.#fromHandle not reached');
+  }
+  let ctorFunc = ctor as WasmFunction;
+  let make = (h: i32): i32 => b.callFunc(b.addRef(new IrRefFunc(ctorFunc)),
+      growable<i32>([h]), ctorFunc.signature.returns[0]);
+  if (!(want is ValTypeRefNull)) {
+    return make(handle);
+  }
+  let isNull = b.emit(IrOp.ref_is_null, new ValTypeI32() as ValType, handle, -1);
+  let nullB = b.newBlock();
+  let someB = b.newBlock();
+  let mergeB = b.newBlock();
+  b.brIf(isNull, nullB, new Array<i32>(), someB, new Array<i32>());
+  b.switchTo(someB);
+  let result = b.blockParam(mergeB, want);
+  b.br(mergeB, growable<i32>([make(handle)]));
+  b.switchTo(nullB);
+  b.br(mergeB, growable<i32>([b.emit(IrOp.ref_null, want, -1, -1)]));
+  b.switchTo(mergeB);
+  return result;
 }
 
 /**
@@ -1161,7 +1289,7 @@ function lowerFunctionOrThrow(wasm: WasmModule, func: WasmFunction): IrBody {
   // and the wrapper is the ABI shim to the declared GC types —
   // streaming's shape.
   if (func.importWrapperTarget != null) {
-    return lowerImportWrapper(func);
+    return lowerImportWrapper(wasm, func);
   }
   // Case-class synthesizers win over any carried node: a leaf variant
   // whose sealed base writes hashCode()/== keeps the base's METHOD

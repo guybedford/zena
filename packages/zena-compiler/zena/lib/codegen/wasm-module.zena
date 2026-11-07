@@ -396,6 +396,16 @@ export function asWasmStruct(vt: ValType): WasmStruct | null {
 }
 
 /** The WasmSignature behind a reference ValType, or null. */
+/** Whether `vt` is a reference, nullable or not, to the struct `st`. */
+export function isRefTo(vt: ValType, st: WasmStruct): boolean {
+  return match (vt) {
+    case ValTypeRef as r: r.target == (st as WasmType)
+    case ValTypeRefNull as r: r.target == (st as WasmType)
+    case _: false
+  };
+}
+
+/** The WasmSignature behind a reference ValType, or null. */
 export function asWasmSignature(vt: ValType): WasmSignature | null {
   let t = refTargetOf(vt);
   if (t is WasmSignature) {
@@ -688,6 +698,12 @@ export final class WasmFunction implements Hashable {
   var interfaceTrampolineSlot: String | null = null;
   /** The target imported function for an external reference wrapper. */
   var importWrapperTarget: WasmFunction | null = null;
+  /**
+   * The wrapper is a `tw` import's (external-name.zena): its import
+   * carries `String`s as JS string handles, and its reference results
+   * as their own types.
+   */
+  var importWrapperTw: boolean = false;
   var intrinsic: String | null = null;
 
   var isReached: boolean = false;
@@ -1476,6 +1492,23 @@ export final class WasmModule {
     this.globalImports.push(g);
     this.importedStringGlobals[value] = g;
     return g;
+  }
+
+  /**
+   * The JS-target `String` struct, whose one field is the JS string
+   * handle that a `tw` import carries instead (external-name.zena), or
+   * null when the program has no String or the target's String is not
+   * a handle. Its field may not be laid out yet.
+   */
+  twStringStruct(): WasmStruct | null {
+    let {stringClass} = this;
+    if (stringClass == null || !targetUsesJsStrings(this.target)) {
+      return null;
+    }
+    if (let (true, info) = this.classInfos.get(getClassKey(stringClass))) {
+      return info.structType;
+    }
+    return null;
   }
 
   getImportedStringWrapperGlobal(value: String, model: SemanticModel): WasmGlobal {

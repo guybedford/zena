@@ -5499,6 +5499,29 @@ A placeholder that names none of the function's type parameters is a compile
 error. So is a type argument with no spelling, such as a record, an interface or
 a union other than `T | null`.
 
+#### `tw` Imports
+
+The `tw` option, as the third `@external` argument, marks an import whose
+provider is a ts-gen `tw` bridge: a Wasm module rather than JS. Its types
+cross as themselves, so a GC reference result keeps its own type instead
+of crossing as `externref` and being cast. The exception is `String`, which
+crosses as its JS string handle (`externref`, nullable for `String | null`),
+the IR's `str` on the host string carrier.
+
+```zena
+@external("tw:js/global", "Headers#get(str)", "tw")
+declare function headersGet(h: Headers, name: String): String | null;
+// imports (func (param externref externref) (result externref))
+
+@external("tw:js/global", "bytes()", "tw")
+declare function bytes(): array<var u8>;
+// imports (func (result (ref (array (mut i8)))))
+```
+
+The option applies to generic imports too, so `Map#get<{K},{V}>(K)` at
+`<String, String>` takes and returns JS string handles. It needs a target
+whose `String` is a JS string handle (`-t js`).
+
 #### Re-exports
 
 Symbols can be re-exported from other libraries using `export { ... } from` or
