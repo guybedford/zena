@@ -91,13 +91,15 @@ export function checkStatement(ctx: CheckerContext, stmt: Statement): void {
     }
     case FunctionDeclaration {name as namePat, func, exported, decorators}: {
       for (let dec in decorators) {
-        let exportName = if (dec.name == "export" && dec.args.length == 1) {
+        let twOption = if (dec.args.length == 2) decoratorStringArg(dec, 1) else "tw";
+        let exportName = if (dec.name == "export" && (dec.args.length == 1 || dec.args.length == 2) &&
+            twOption == "tw") {
           decoratorStringArg(dec, 0)
         } else {
           null
         };
         if (exportName == null || exportName.length == 0) {
-          ctx.error("A function takes only '@export(\"<name>\")', its Wasm export name.",
+          ctx.error("A function takes only '@export(\"<name>\")' or '@export(\"<name>\", \"tw\")', its Wasm export name.",
               DiagnosticCode.TypeMismatch, dec.loc);
         } else if (!exported) {
           ctx.error("'@export' names an exported function's Wasm export; add 'export'.",

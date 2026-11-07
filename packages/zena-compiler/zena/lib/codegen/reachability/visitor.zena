@@ -3683,7 +3683,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
     }
     this.#discoverFunctionBinding(
         funcDecl.name as Pattern, funcDecl.func, funcDecl.exported, moduleModel,
-        exportNameOf(funcDecl));
+        exportNameOf(funcDecl), exportIsTw(funcDecl));
   }
 
   discoverVariableDeclaration(symId: SymbolId, varDecl: VariableDeclaration, moduleModel: SemanticModel): void {
@@ -3742,7 +3742,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
 
   /** Shared by `let f = () => ...` and `function f() { ... }`. */
   #discoverFunctionBinding(pattern: Pattern, funcExpr: FunctionExpression, exported: boolean, moduleModel: SemanticModel,
-      exportAs: String | null = null): void {
+      exportAs: String | null = null, exportTw: boolean = false): void {
     let funcTypeNode = moduleModel.getNodeType(funcExpr);
     var isGeneric = false;
     if (funcTypeNode is FunctionType) {
@@ -3828,7 +3828,12 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
             } else {
               pattern.name
             };
-            this.pass.wasm.exportMap[exportName as ExportKey] = wasmFunc;
+            let exported = if (exportTw && funcTypeNode is FunctionType) {
+              this.#twExportWrapper(wasmFunc, funcTypeNode, funcExpr, moduleModel, exportName as String)
+            } else {
+              wasmFunc
+            };
+            this.pass.wasm.exportMap[exportName as ExportKey] = exported;
           }
           if (this.pass.currentReachable) {
             this.pass.markFunctionReached(wasmFunc);
@@ -4109,7 +4114,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
     // `Option<T>` is never one, so options align from the first.
     if (params.length == funcType.parameters.length) {
       for (var i = 0; i < params.length; i += 1) {
-        let opt = this.#twOption(decl, funcType.parameters[i], model);
+        let opt = this.#twOption(decl.name.name, funcType.parameters[i], model);
         if (opt != null) {
           if (paramOptions == null) {
             let all = new Array<TwOption | null>();
@@ -4138,7 +4143,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
       }
     }
     let resultOption = if (returns.length == 1) {
-      this.#twOption(decl, funcType.returnType, model)
+      this.#twOption(decl.name.name, funcType.returnType, model)
     } else {
       null
     };
@@ -4193,11 +4198,88 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
   }
 
   /**
+   * The Wasm export of a `tw` export (`@export(name, "tw")`): `func`
+   * itself, or a wrapper taking `String`s as JS string handles and each
+   * `Option<T>` as the IR's `T?`, and returning them so.
+   */
+  #twExportWrapper(func: WasmFunction, funcType: FunctionType, node: FunctionExpression,
+      model: SemanticModel, name: String): WasmFunction {
+    let wasm = this.pass.wasm;
+    let st = wasm.twStringStruct();
+    let params = func.signature.params;
+    let returns = func.signature.returns;
+    var converts = false;
+    var usesString = false;
+    var paramOptions: GrowableArray<TwOption | null> | null = null;
+    let rawParams = new Array<ValType>();
+    let aligned = params.length == funcType.parameters.length;
+    for (var i = 0; i < params.length; i += 1) {
+      let opt = if (aligned) this.#twOption(name, funcType.parameters[i], model) else null;
+      if (opt != null) {
+        if (paramOptions == null) {
+          let all = new Array<TwOption | null>();
+          for (var j = 0; j < params.length; j += 1) {
+            all.push(null);
+          }
+          paramOptions = all;
+        }
+        (paramOptions as GrowableArray<TwOption | null>)[i] = opt;
+        for (let raw in opt.raw()) {
+          rawParams.push(raw);
+        }
+        converts = true;
+        usesString = usesString || opt.isString;
+      } else if (st != null && isRefTo(params[i], st as WasmStruct)) {
+        rawParams.push(new ValTypeExternRef());
+        converts = true;
+        usesString = true;
+      } else {
+        rawParams.push(params[i]);
+      }
+    }
+    let resultOption = if (returns.length == 1) this.#twOption(name, funcType.returnType, model) else null;
+    let rawReturns = new Array<ValType>();
+    if (resultOption != null) {
+      for (let raw in resultOption.raw()) {
+        rawReturns.push(raw);
+      }
+      converts = true;
+    } else {
+      for (let vt in returns) {
+        if (st != null && isRefTo(vt, st as WasmStruct)) {
+          rawReturns.push(new ValTypeExternRef());
+          converts = true;
+        } else {
+          rawReturns.push(vt);
+        }
+      }
+    }
+    if (!converts) {
+      return func;
+    }
+    if (usesString) {
+      let sc = wasm.stringClass as ClassType;
+      this.pass.specializer.instantiateClassType(sc, this.pass.getClassModel(sc));
+      this.queueExplicitCtor(sc, "<constructor>.#fromHandle");
+    }
+    let wrapper = new WasmFunction(wasm.getSignature(rawParams, rawReturns), node, model);
+    wrapper.name = `${func.name ?? "export"}$tw`;
+    wrapper.importWrapperTarget = func;
+    wrapper.importWrapperTw = true;
+    wrapper.twExportWrapper = true;
+    wrapper.twParamOptions = paramOptions;
+    wrapper.twResultOption = resultOption;
+    wasm.addFunction(wrapper);
+    this.pass.markFunctionReached(wrapper);
+    return wrapper;
+  }
+
+  /**
    * How a `tw` import carries `t`, when it is an `Option<T>`: as the
    * IR's `T?`, the layout of which depends on `T`. Its arms' classes are
    * instantiated, since the wrapper tests for and builds them.
    */
-  #twOption(decl: DeclareFunction, t: Type, model: SemanticModel): TwOption | null {
+  #twOption(what: String, t: Type, model: SemanticModel): TwOption | null {
     let u = unwrapAliases(t);
     if (!(u is UnionType) || u.types.length != 2) {
       return null;
@@ -4230,7 +4312,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
     let kind = if (pu is BooleanType || pu is I8Type || pu is U8Type || pu is I16Type || pu is U16Type) {
       TwOptionKind.Niche
     } else if (pu is EnumType) {
-      throw new Error(`'${decl.name.name}' carries an Option of the enum '${pu.name}', whose IR layout a tw import doesn't know`);
+      throw new Error(`'${what}' carries an Option of the enum '${pu.name}', whose IR layout tw doesn't know`);
     } else if (isRefValType(payload)) {
       if (pu is ClassType) {
         isString = isWellKnown(WellKnown.StringClass, pu.name, pu.sourcePath);
@@ -4297,6 +4379,19 @@ export function exportNameOf(decl: FunctionDeclaration): String | null {
     }
   }
   return null;
+}
+
+/**
+ * `@export(name, "tw")`: the caller is a ts-gen `tw` bridge, so values
+ * cross as they do a `tw` import's (external-name.zena).
+ */
+function exportIsTw(decl: FunctionDeclaration): boolean {
+  for (let dec in decl.decorators) {
+    if (dec.name == "export" && dec.args.length == 2) {
+      return decoratorStringArg(dec, 1) == "tw";
+    }
+  }
+  return false;
 }
 
 function noOpenTypeParameters(args: Array<Type>): boolean {

@@ -17,6 +17,19 @@ function compileWat(name: String): String {
   return readFileSync(outPath);
 }
 
+/** Whether the WAT exports `func` as `name`, at the function type `sig`. */
+function exportsAt(wat: String, name: String, func: String, sig: String): boolean {
+  if (!wat.contains(`(export "${name}" (func $${func}))`)) {
+    return false;
+  }
+  for (var n = 0; n < 64; n += 1) {
+    if (wat.contains(`(func $${func} (type ${n})`)) {
+      return wat.contains(`(type (;${n};) (func ${sig}))`);
+    }
+  }
+  return false;
+}
+
 /** Whether the WAT imports `name` at the function type `sig`. */
 function importsAt(wat: String, name: String, sig: String): boolean {
   for (var n = 0; n < 64; n += 1) {
@@ -90,6 +103,17 @@ export let tests = suite('tw bindings', () => {
     isTrue(wat.contains('(export "default.fetch(Request,Env,ExecutionContext)"'), 'the fetch export');
     isTrue(wat.contains('(export "version()"'), 'the version export');
     isTrue(!wat.contains('(export "fetch"'), 'no export under the Zena name');
+  });
+
+  test('a tw export crosses as a tw import does', (ctx) => {
+    let wat = compileWat('tw-export');
+    for (let (name, func, sig) in [
+      ('greet(str)', 'greet$tw', '(param externref) (result externref)'),
+      ('twice(f64?)', 'twice$tw', '(param i32) (param f64) (result i32) (result f64)'),
+      ('name(bool)', 'name$tw', '(param i32) (result externref)'),
+    ]) {
+      isTrue(exportsAt(wat, name, func, sig), `${name} exports as ${sig}`);
+    }
   });
 
   test('@export names a Wasm export in a library too', (ctx) => {

@@ -756,6 +756,12 @@ export final class WasmFunction implements Hashable {
   var twParamOptions: GrowableArray<TwOption | null> | null = null;
   /** How the wrapper's `Option<T>` result crosses, if it has one. */
   var twResultOption: TwOption | null = null;
+  /**
+   * The wrapper is a `tw` export's (`@export(name, "tw")`): the bridge
+   * calls it, and it calls `importWrapperTarget`, converting the other
+   * way round from an import wrapper.
+   */
+  var twExportWrapper: boolean = false;
   var intrinsic: String | null = null;
 
   var isReached: boolean = false;

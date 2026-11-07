@@ -4,11 +4,17 @@
 @export("f()") // @error: '@export' names an exported function's Wasm export; add 'export'.
 function f(): i32 { return 1; }
 
-@export() // @error: A function takes only '@export("<name>")', its Wasm export name.
+@export() // @error: A function takes only '@export("<name>")' or '@export("<name>", "tw")', its Wasm export name.
 export function g(): i32 { return 1; }
 
-@pure // @error: A function takes only '@export("<name>")', its Wasm export name.
+@pure // @error: A function takes only '@export("<name>")' or '@export("<name>", "tw")', its Wasm export name.
 export function h(): i32 { return 1; }
 
 @export("C") // @error: A class takes only '@spelling("<ts-gen IR name>")', which names the class in templated @external names.
 export extension class C on externref {}
+
+@export("i()", "js") // @error: A function takes only '@export("<name>")' or '@export("<name>", "tw")', its Wasm export name.
+export function i(): i32 { return 1; }
+
+@export("j()", "tw")
+export function j(): i32 { return 1; }

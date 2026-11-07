@@ -5454,6 +5454,10 @@ An `@export` function is a Wasm export in any module of the program, not
 only the entry, so a library can export what its host calls, such as a
 binding's callback trampolines.
 
+`@export(name, "tw")` marks an export a ts-gen `tw` bridge calls: its
+parameters and result cross as a `tw` import's do (see `tw` Imports), a
+`String` as its JS string handle and an `Option<T>` as the IR's `T?`.
+
 ### Imports (Host Interop)
 
 Zena allows importing functions from the host environment using the `declare`

@@ -178,6 +178,9 @@ function kindTagOf(e: Expression) {
  * callable identity — vtable slots and function values reference it.
  */
 function lowerImportWrapper(wasm: WasmModule, func: WasmFunction) {
+  if (func.twExportWrapper) {
+    return lowerTwExportWrapper(wasm, func);
+  }
   if (func.importWrapperTw) {
     return lowerTwImportWrapper(wasm, func);
   }
@@ -286,6 +289,80 @@ function lowerTwImportWrapper(wasm: WasmModule, func: WasmFunction) {
     b.ret(results[0]);
   } else {
     b.retMulti(results);
+  }
+  return b.finish();
+}
+
+/**
+ * A `tw` export wrapper's body: the bridge's values become the Zena
+ * function's (JS string handles `String`s, the IR's `T?` `Option<T>`s),
+ * and its result goes back the same way.
+ */
+function lowerTwExportWrapper(wasm: WasmModule, func: WasmFunction) {
+  let target = func.importWrapperTarget as WasmFunction;
+  let b = new IrBuilder();
+  let entry = b.newBlock();
+  let raws = new Array<i32>();
+  for (let vt in func.signature.params) {
+    raws.push(b.blockParam(entry, vt));
+  }
+  b.switchTo(entry);
+  let args = new Array<i32>();
+  let options = func.twParamOptions;
+  var at = 0;
+  for (var i = 0; i < target.signature.params.length; i += 1) {
+    let want = target.signature.params[i];
+    let opt = if (options != null) options[i] else null;
+    if (opt != null) {
+      let n = opt.raw().length;
+      let mine = new Array<i32>();
+      for (var j = 0; j < n; j += 1) {
+        mine.push(raws[at + j]);
+      }
+      args.push(twOptionFromRaw(wasm, b, opt, want, mine));
+      at += n;
+      continue;
+    }
+    let st = asWasmStruct(want);
+    if (st != null && func.signature.params[at] is ValTypeExternRef) {
+      args.push(twStringFromHandle(wasm, b, want, raws[at]));
+    } else {
+      args.push(raws[at]);
+    }
+    at += 1;
+  }
+  let funcRef = b.addRef(new IrRefFunc(target));
+  let returns = target.signature.returns;
+  if (returns.length == 0) {
+    b.callFunc(funcRef, args, null);
+    b.retVoid();
+    return b.finish();
+  }
+  let values = if (returns.length == 1) {
+    growable<i32>([b.callFunc(funcRef, args, returns[0])])
+  } else {
+    b.callFuncMulti(funcRef, args, returns)
+  };
+  let resultOption = func.twResultOption;
+  let out = new Array<i32>();
+  if (resultOption != null) {
+    for (let v in twOptionToRaw(wasm, b, resultOption, values[0])) {
+      out.push(v);
+    }
+  } else {
+    for (var i = 0; i < values.length; i += 1) {
+      let st = asWasmStruct(returns[i]);
+      if (st != null && func.signature.returns[i] is ValTypeExternRef) {
+        out.push(twStringHandle(b, st as WasmStruct, values[i]));
+      } else {
+        out.push(values[i]);
+      }
+    }
+  }
+  if (out.length == 1) {
+    b.ret(out[0]);
+  } else {
+    b.retMulti(out);
   }
   return b.finish();
 }

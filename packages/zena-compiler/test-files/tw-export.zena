@@ -1,0 +1,18 @@
+// Fixture for tw-bindings_test.zena: a tw export takes and returns what a
+// tw import does, JS string handles for Strings and the IR's `T?` for an
+// Option<T>.
+
+@export("greet(str)", "tw")
+export function greet(name: String): String {
+  return `hi ${name}`;
+}
+
+@export("twice(f64?)", "tw")
+export function twice(value: Option<f64>): Option<f64> {
+  return if (let Some {value as v} = value) some<f64>(v * 2.0) else none;
+}
+
+@export("name(bool)", "tw")
+export function name(yes: boolean): String | null {
+  return if (yes) "zena" else null;
+}
