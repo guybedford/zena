@@ -533,6 +533,48 @@ function heapSubtype(a: WasmType, b: WasmType): boolean {
 export let noCaptures = new Array<SymbolId>();
 export let noMutableCaptures = new Set<SymbolId>();
 
+/**
+ * How a `tw` import carries an `Option<T>` as the ts-gen IR's `T?`: a
+ * reference as itself or null, a narrow scalar as its carrier with a
+ * niche value for absence, and any other scalar as a presence flag then
+ * the value (IR.md §10).
+ */
+export final class TwOption {
+  kind: TwOptionKind;
+  /** The carrier's absent value, for `TwOptionKind.Niche`. */
+  niche: i32;
+  some: ClassType;
+  none: ClassType;
+  /** The payload's Zena wasm type. */
+  payload: ValType;
+  /** A `String` payload, which crosses as its JS string handle. */
+  isString: boolean;
+  new(this.kind, this.niche, this.some, this.none, this.payload, this.isString);
+
+  /** The import's values for one `Option<T>`. */
+  raw(): GrowableArray<ValType> {
+    return match (this.kind) {
+      case TwOptionKind.Ref: {
+        let vt: ValType = if (this.isString) new ValTypeExternRef() else nullableRef(this.payload);
+        growable<ValType>([vt])
+      }
+      case TwOptionKind.Niche: growable<ValType>([this.payload])
+      case TwOptionKind.Flag: growable<ValType>([new ValTypeI32(), this.payload])
+    };
+  }
+}
+
+export enum TwOptionKind { Ref, Niche, Flag }
+
+/** `vt`, admitting null. */
+export function nullableRef(vt: ValType): ValType {
+  return match (vt) {
+    case ValTypeRef {target}: new ValTypeRefNull(target)
+    case ValTypeRefExtern: new ValTypeExternRef()
+    case _: vt
+  };
+}
+
 export final class WasmFunction implements Hashable {
   /** The semantic model of the module that declares this function. */
   var model: SemanticModel;
@@ -707,6 +749,13 @@ export final class WasmFunction implements Hashable {
    * as their own types.
    */
   var importWrapperTw: boolean = false;
+  /**
+   * Per parameter of a `tw` import wrapper, how it carries an `Option<T>`
+   * parameter as the IR's `T?`; null when no parameter is one.
+   */
+  var twParamOptions: GrowableArray<TwOption | null> | null = null;
+  /** How the wrapper's `Option<T>` result crosses, if it has one. */
+  var twResultOption: TwOption | null = null;
   var intrinsic: String | null = null;
 
   var isReached: boolean = false;

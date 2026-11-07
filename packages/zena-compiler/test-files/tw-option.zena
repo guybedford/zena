@@ -1,0 +1,24 @@
+// Fixture for tw-bindings_test.zena: a tw import carries an Option<T>
+// as the ts-gen IR's `T?`, laid out per instantiation.
+
+@external("tw:js/global", "Map#find<{V}>(str)", "tw")
+declare function find<V>(map: externref, key: String): Option<V>;
+
+@external("tw:js/global", "Map#put<{V}>(V?)", "tw")
+declare function put<V>(map: externref, value: Option<V>): void;
+
+export extension class Host on externref {}
+
+export function main(map: externref): i32 {
+  let a = find<f64>(map, "a");
+  let b = find<Host>(map, "b");
+  let c = find<String>(map, "c");
+  let d = find<boolean>(map, "d");
+  put<f64>(map, a);
+  put<Host>(map, b);
+  put<String>(map, c);
+  put<boolean>(map, d);
+  put<i32>(map, some<i32>(1));
+  put<i32>(map, none);
+  return if (let Some {value} = a) value as i32 else 0;
+}

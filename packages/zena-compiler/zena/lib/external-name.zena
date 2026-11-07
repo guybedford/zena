@@ -14,6 +14,7 @@ import {
   TypeParameterType, TypeAliasType, EnumType, unwrapAliases,
 } from './types.zena';
 import { Decorator, DeclareFunction, decoratorStringArg } from './ast.zena';
+import { WellKnown, isWellKnown } from './well-known.zena';
 
 /**
  * An `@external` name split at its placeholders: `pieces` is the literal
@@ -248,7 +249,7 @@ export function irTypeSpelling(t: Type, isString: (ct: ClassType) => boolean): S
 
 /**
  * Whether a value of type parameter `name` crosses `ft`'s import: as a
- * parameter or the result, or an element of one. Only spelled, as the
+ * parameter or the result, or an element or `Option` of one. Only spelled, as the
  * argument of a host class such as `JsPromise<T>`, it can be any type
  * with a spelling.
  */
@@ -267,9 +268,11 @@ function valueMentions(t: Type, name: String): boolean {
     case ArrayType {elementType}: valueMentions(elementType, name)
     case ClassType as ct: {
       let typeArguments = ct.typeArguments;
-      ct.name == "array" && typeArguments != null && typeArguments.length == 1 &&
+      (ct.name == "array" || isWellKnown(WellKnown.SomeClass, ct.name, ct.sourcePath)) &&
+          typeArguments != null && typeArguments.length == 1 &&
           valueMentions(typeArguments[0], name)
     }
+    case TypeAliasType as ta: !ta.isDistinct && valueMentions(unwrapAliases(ta), name)
     case UnionType {types}: valueMentionsAny(types, name)
     case TupleType {elementTypes}: valueMentionsAny(elementTypes, name)
     case InlineTupleType {elementTypes}: valueMentionsAny(elementTypes, name)

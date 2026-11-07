@@ -10,6 +10,9 @@ declare function boxNew<T>(): Box<T>;
 
 export extension class Box<T> on externref {}
 
+@external("tw:js/global", "put<{T}>(T?)", "tw")
+declare function put<T>(value: Option<T>): void;
+
 @external("m", "plain<{T}>(T)")
 declare function plain<T>(value: T): T;
 
@@ -35,5 +38,7 @@ export function main(p: Point, ps: array<Point>, h: Host, s: Shape): void {
   id<f64>(1.0);
   boxNew<Point>();
   boxNew<Shape>(); // @error: The type argument 'Shape' for '{T}' of 'boxNew' has no ts-gen IR spelling, so it can't cross a tw import.
+  put<Point>(none); // @error: The type argument 'Point' for '{T}' of 'put' is the Zena class 'Point', not a host type, so it can't cross a tw import.
+  put<f64>(some<f64>(1.0));
   plain<Point>(p);
 }

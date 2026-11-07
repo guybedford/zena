@@ -41,7 +41,7 @@ import { ValType, ValTypeVoid, ValTypeI32, ValTypeI64, ValTypeF32, ValTypeF64, V
 import { targetUsesJsStrings } from '../../targets.zena';
 import {
   WasmModule, WasmFunction, WasmStruct, WasmField, WasmGlobal, WasmSignature, ClassCodegenInfo, isValSubtype, sortWasmFields, RecordDispatchInfo, asWasmStruct, asWasmSignature, asWasmArray, valTypeIdentical, ClosureForwarderSpec, ExplosionSpec, AdaptationPack,
-  noCaptures,
+  noCaptures, TwOption, TwOptionKind,
 } from '../wasm-module.zena';
 import {
   typeToValType, typeToValTypeWithSub, eraseTypeParameters, substituteTypeParamsInClassContext, substituteTypeParamsInFunctionContext, InlineLayout, inlineLayoutOf, inlineParamLayoutOf, inlineRecordParamOf, inlineRecordResultOf, getInterfaceTypeParameters, substituteTypeParamsInCodegen, nestedInlineTuple, nestedInlineRecord, flattenInlineTuple, recordFieldsTuple, recordFieldNames, inlineRecordFieldsLayout, boxedRecordWithFields, boxedFieldType, pathIndex, getClosureStruct, getClosureKey, getNonNullableType, recordWasmFields, sortedOptionalNames, interfaceCallSlotName,
@@ -217,9 +217,9 @@ function lowerImportWrapper(wasm: WasmModule, func: WasmFunction) {
 
 /**
  * A `tw` import wrapper's body (external-name.zena): forward the params
- * with each `String` replaced by its JS string handle, call the import,
- * and wrap each handle result back into a `String`. Everything else
- * crosses unchanged.
+ * with each `String` replaced by its JS string handle and each
+ * `Option<T>` by the IR's `T?`, call the import, and convert the result
+ * back the same way. Everything else crosses unchanged.
  */
 function lowerTwImportWrapper(wasm: WasmModule, func: WasmFunction) {
   let target = func.importWrapperTarget as WasmFunction;
@@ -231,14 +231,25 @@ function lowerTwImportWrapper(wasm: WasmModule, func: WasmFunction) {
   }
   b.switchTo(entry);
   let args = new Array<i32>();
+  let options = func.twParamOptions;
+  var at = 0;
   for (var i = 0; i < params.length; i += 1) {
+    let opt = if (options != null) options[i] else null;
+    if (opt != null) {
+      for (let v in twOptionToRaw(wasm, b, opt, params[i])) {
+        args.push(v);
+      }
+      at += opt.raw().length;
+      continue;
+    }
     let have = func.signature.params[i];
     let st = asWasmStruct(have);
-    if (st != null && target.signature.params[i] is ValTypeExternRef) {
+    if (st != null && target.signature.params[at] is ValTypeExternRef) {
       args.push(twStringHandle(b, st as WasmStruct, params[i]));
     } else {
       args.push(params[i]);
     }
+    at += 1;
   }
   let funcRef = b.addRef(new IrRefFunc(target));
   let wants = func.signature.returns;
@@ -251,11 +262,16 @@ function lowerTwImportWrapper(wasm: WasmModule, func: WasmFunction) {
   for (let vt in target.signature.returns) {
     rawTypes.push(vt);
   }
-  let raws = if (wants.length == 1) {
+  let raws = if (rawTypes.length == 1) {
     growable<i32>([b.callFunc(funcRef, args, rawTypes[0])])
   } else {
     b.callFuncMulti(funcRef, args, rawTypes)
   };
+  let resultOption = func.twResultOption;
+  if (resultOption != null) {
+    b.ret(twOptionFromRaw(wasm, b, resultOption, wants[0], raws));
+    return b.finish();
+  }
   let results = new Array<i32>();
   for (var i = 0; i < wants.length; i += 1) {
     let want = wants[i];
@@ -272,6 +288,131 @@ function lowerTwImportWrapper(wasm: WasmModule, func: WasmFunction) {
     b.retMulti(results);
   }
   return b.finish();
+}
+
+function twCtor(wasm: WasmModule, ct: ClassType): WasmFunction {
+  let key = getClassMethodKey(getClassKey(ct), "<constructor>");
+  if (let (true, c) = wasm.classMethodMap.get(key)) {
+    return c;
+  }
+  throw new ZirUnsupported(`tw import: ${ct.name}'s constructor not reached`);
+}
+
+function twStructOf(wasm: WasmModule, ct: ClassType): WasmStruct {
+  if (let (true, info) = wasm.classInfos.get(getClassKey(ct))) {
+    let st = info.structType;
+    if (st != null) {
+      return st;
+    }
+  }
+  throw new ZirUnsupported(`tw import: ${ct.name} has no struct`);
+}
+
+/** The field of `Some<T>` holding its value. */
+function twSomeField(st: WasmStruct): WasmField {
+  for (let f in st.fields) {
+    let n = f.name;
+    if (n != null && ((n as String) == 'value' || (n as String).endsWith('::value'))) {
+      return f;
+    }
+  }
+  throw new ZirUnsupported('tw import: Some has no value field');
+}
+
+/** The IR's `T?` values for an `Option<T>` value. */
+function twOptionToRaw(wasm: WasmModule, b: IrBuilder, opt: TwOption,
+    value: i32): GrowableArray<i32> {
+  let i32vt = new ValTypeI32() as ValType;
+  let st = twStructOf(wasm, opt.some);
+  let field = twSomeField(st);
+  let someVt = new ValTypeRef(st) as ValType;
+  let rawTypes = opt.raw();
+  let someB = b.newBlock();
+  let noneB = b.newBlock();
+  let mergeB = b.newBlock();
+  let out = new Array<i32>();
+  for (let vt in rawTypes) {
+    out.push(b.blockParam(mergeB, vt));
+  }
+  let test = b.emit(IrOp.ref_test, i32vt, value, b.internType(someVt));
+  b.brIf(test, someB, new Array<i32>(), noneB, new Array<i32>());
+
+  b.switchTo(someB);
+  let cast = b.emit(IrOp.ref_cast, someVt, value, b.internType(someVt));
+  var v = b.emit(IrOp.struct_get, field.type, cast,
+      b.addRef(new IrRefField(st, field.name as String)));
+  if (opt.isString) {
+    let sst = asWasmStruct(field.type);
+    if (sst == null) {
+      throw new ZirUnsupported('tw import: Some<String> holds no String');
+    }
+    v = twStringHandle(b, sst as WasmStruct, v);
+  }
+  let someVals = match (opt.kind) {
+    case TwOptionKind.Flag: growable<i32>([b.constI32(1, i32vt), v])
+    case _: growable<i32>([v])
+  };
+  b.br(mergeB, someVals);
+
+  b.switchTo(noneB);
+  let noneVals = match (opt.kind) {
+    case TwOptionKind.Ref: growable<i32>([b.emit(IrOp.ref_null, rawTypes[0], -1, -1)])
+    case TwOptionKind.Niche: growable<i32>([b.constI32(opt.niche, i32vt)])
+    case TwOptionKind.Flag: growable<i32>([b.constI32(0, i32vt), zeroValueOf(b, opt.payload)])
+  };
+  b.br(mergeB, noneVals);
+  b.switchTo(mergeB);
+  return out;
+}
+
+/** The `Option<T>` the IR's `T?` values `raws` stand for. */
+function twOptionFromRaw(wasm: WasmModule, b: IrBuilder, opt: TwOption,
+    want: ValType, raws: GrowableArray<i32>): i32 {
+  let i32vt = new ValTypeI32() as ValType;
+  let isPresent = match (opt.kind) {
+    case TwOptionKind.Ref: b.emit(IrOp.i32_eqz, i32vt,
+        b.emit(IrOp.ref_is_null, i32vt, raws[0], -1), -1)
+    case TwOptionKind.Niche: b.emit(IrOp.i32_ne, i32vt, raws[0],
+        b.constI32(opt.niche, i32vt))
+    case TwOptionKind.Flag: raws[0]
+  };
+  let someB = b.newBlock();
+  let noneB = b.newBlock();
+  let mergeB = b.newBlock();
+  let result = b.blockParam(mergeB, want);
+  b.brIf(isPresent, someB, new Array<i32>(), noneB, new Array<i32>());
+
+  b.switchTo(someB);
+  let someCtor = twCtor(wasm, opt.some);
+  let field = twSomeField(twStructOf(wasm, opt.some));
+  var v = match (opt.kind) {
+    case TwOptionKind.Flag: raws[1]
+    case _: raws[0]
+  };
+  if (opt.isString) {
+    v = twStringFromHandle(wasm, b, opt.payload, v);
+  } else if (opt.kind == TwOptionKind.Ref && !isNullableRef(field.type)) {
+    v = b.emit(IrOp.ref_as_non_null, field.type, v, -1);
+  }
+  let made = b.callFunc(b.addRef(new IrRefFunc(someCtor)), growable<i32>([v]),
+      someCtor.signature.returns[0]);
+  b.br(mergeB, growable<i32>([made]));
+
+  b.switchTo(noneB);
+  let noneCtor = twCtor(wasm, opt.none);
+  let empty = b.callFunc(b.addRef(new IrRefFunc(noneCtor)), new Array<i32>(),
+      noneCtor.signature.returns[0]);
+  b.br(mergeB, growable<i32>([empty]));
+  b.switchTo(mergeB);
+  return result;
+}
+
+function isNullableRef(vt: ValType): boolean {
+  return match (vt) {
+    case ValTypeRef: false
+    case ValTypeRefExtern: false
+    case _: true
+  };
 }
 
 /** The JS string handle of a `String` value, null for null. */

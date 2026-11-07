@@ -17,6 +17,16 @@ function compileWat(name: String): String {
   return readFileSync(outPath);
 }
 
+/** Whether the WAT imports `name` at the function type `sig`. */
+function importsAt(wat: String, name: String, sig: String): boolean {
+  for (var n = 0; n < 64; n += 1) {
+    if (wat.contains(`"${name}" (func (type ${n}))`)) {
+      return wat.contains(`(type (;${n};) (func ${sig}))`);
+    }
+  }
+  return false;
+}
+
 export let tests = suite('tw bindings', () => {
   test('generic imports instantiate from generic extension members', (ctx) => {
     let wat = compileWat('extension-generic-external');
@@ -39,6 +49,22 @@ export let tests = suite('tw bindings', () => {
     isTrue(wat.contains('"Options#get:onlyIf()"'), 'the parent getter');
     isTrue(wat.contains('"BucketOptions#set:onlyIf(externref)"'), 'the subclass setter');
     isTrue(wat.contains('"Options#set:onlyIf(externref | null)"'), 'the parent setter');
+  });
+
+  test('an Option<T> crosses as the IR\'s T?', (ctx) => {
+    let wat = compileWat('tw-option');
+    for (let (name, sig) in [
+      ('Map#find<f64>(str)', '(param externref) (param externref) (result i32) (result f64)'),
+      ('Map#find<Host>(str)', '(param externref) (param externref) (result externref)'),
+      ('Map#find<str>(str)', '(param externref) (param externref) (result externref)'),
+      ('Map#find<bool>(str)', '(param externref) (param externref) (result i32)'),
+      ('Map#put<f64>(V?)', '(param externref) (param i32) (param f64)'),
+      ('Map#put<str>(V?)', '(param externref) (param externref)'),
+      ('Map#put<bool>(V?)', '(param externref) (param i32)'),
+      ('Map#put<i32>(V?)', '(param externref) (param i32) (param i32)'),
+    ]) {
+      isTrue(importsAt(wat, name, sig), `${name} imports as ${sig}`);
+    }
   });
 
   test('an imported global only unreached code names', (ctx) => {

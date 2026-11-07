@@ -13,13 +13,13 @@ import { SemanticModel, memberKeyOf, accessKeyOf } from '../../semantic-model.ze
 import {
   Type, ClassType, InterfaceType, FunctionType, TypeParameterType, RecordType, TupleType, InlineTupleType, InlineRecordType, UnionType, TypeAliasType, EnumType, ArrayType, NullType, I32Type, U64Type, MethodInfo, FieldInfo, instantiateClassType, instantiateInterfaceType, ThisType, baseType, ErasedType, AnyRefType,
   isBigIntLiteralRaw, isScopedType, scopedInner, soleNonNullMember, internFunctionType, forInLowersToIndexLoop,
-  isIterableRangeClass } from '../../types.zena';
+  isIterableRangeClass, BooleanType, I8Type, U8Type, I16Type, U16Type, unwrapAliases } from '../../types.zena';
 import {
   Node, decoratorStringArg, AsExpression, IsExpression, MatchExpression, RecordLiteral, ClassPattern, MatchCase, LetPatternCondition, AsPattern, BindingPattern, LogicalPattern, TuplePattern, ArrayPattern, RestPattern, RecordPattern, AccessorDeclaration, BinaryExpression, LiteralPattern, NewExpression, MethodDefinition, SymbolPropertyName, RangeExpression, ArrayLiteral, MapLiteral, TupleLiteral, Expression, TemplateElement, TaggedTemplateExpression, ForInStatement, MemberExpression, AwaitExpression, IndexExpression, AssignmentExpression, Identifier, CallExpression, VariableDeclaration, FunctionDeclaration, Pattern, ImportDeclaration, DeclareFunction, ImportSpecifier, IdentifierPattern, FunctionExpression, MixinDeclaration, ClassDeclaration, Module, NumberLiteral, ThrowExpression, TryExpression, ContractClause, contractFailureMessage, ShieldedStatement, StringLiteral, SuperInitializer, TemplateLiteral, UnaryExpression,
 } from '../../ast.zena';
 import {
   WasmStruct, WasmField, WasmGlobal, WasmFunction, RecordDispatchInfo, TypeTestSite,
-  isRefTo,
+  isRefTo, TwOption, TwOptionKind,
 } from '../wasm-module.zena';
 import {
   ValType, ValTypeVoid, ValTypeRefNull, ValTypeAnyRef, ValTypeEqRef, ValTypeStructRef, ValTypeRef, ValTypeI32, ValTypeI64, ValTypeF32, ValTypeF64, ValTypeExternRef, ValTypeRefExtern, isRefValType,
@@ -4048,7 +4048,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
 
     if (spec.isTw) {
       return this.#createTwImport(decl, model, spec, importName, functionName,
-          params, returns);
+          funcType, params, returns);
     }
 
     var isGcRef = false;
@@ -4097,21 +4097,66 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
    */
   #createTwImport(decl: DeclareFunction, model: SemanticModel,
       spec: ExternalImportSpec, importName: String, functionName: String,
-      params: GrowableArray<ValType>, returns: GrowableArray<ValType>): WasmFunction {
+      funcType: FunctionType, params: GrowableArray<ValType>,
+      returns: GrowableArray<ValType>): WasmFunction {
     let wasm = this.pass.wasm;
     let st = wasm.twStringStruct();
     var converts = false;
     let rawParams = new Array<ValType>();
-    for (let vt in params) {
-      if (st != null && isRefTo(vt, st as WasmStruct)) {
+    var paramOptions: GrowableArray<TwOption | null> | null = null;
+    // One wasm parameter per Zena one, but for inline tuples: an
+    // `Option<T>` is never one, so options align from the first.
+    if (params.length == funcType.parameters.length) {
+      for (var i = 0; i < params.length; i += 1) {
+        let opt = this.#twOption(decl, funcType.parameters[i], model);
+        if (opt != null) {
+          if (paramOptions == null) {
+            let all = new Array<TwOption | null>();
+            for (var j = 0; j < params.length; j += 1) {
+              all.push(null);
+            }
+            paramOptions = all;
+          }
+          (paramOptions as GrowableArray<TwOption | null>)[i] = opt;
+        }
+      }
+    }
+    for (var i = 0; i < params.length; i += 1) {
+      let vt = params[i];
+      let opt = if (paramOptions != null) paramOptions[i] else null;
+      if (opt != null) {
+        for (let raw in opt.raw()) {
+          rawParams.push(raw);
+        }
+        converts = true;
+      } else if (st != null && isRefTo(vt, st as WasmStruct)) {
         rawParams.push(new ValTypeExternRef());
         converts = true;
       } else {
         rawParams.push(vt);
       }
     }
+    let resultOption = if (returns.length == 1) {
+      this.#twOption(decl, funcType.returnType, model)
+    } else {
+      null
+    };
     let rawReturns = new Array<ValType>();
+    if (resultOption != null) {
+      for (let raw in resultOption.raw()) {
+        rawReturns.push(raw);
+      }
+      converts = true;
+      if (resultOption.isString) {
+        let sc = wasm.stringClass as ClassType;
+        this.pass.specializer.instantiateClassType(sc, this.pass.getClassModel(sc));
+        this.queueExplicitCtor(sc, "<constructor>.#fromHandle");
+      }
+    }
     for (let vt in returns) {
+      if (resultOption != null) {
+        break;
+      }
       if (st != null && isRefTo(vt, st as WasmStruct)) {
         rawReturns.push(new ValTypeExternRef());
         converts = true;
@@ -4140,8 +4185,65 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
     wrapperFunc.name = functionName;
     wrapperFunc.importWrapperTarget = importFunc;
     wrapperFunc.importWrapperTw = true;
+    wrapperFunc.twParamOptions = paramOptions;
+    wrapperFunc.twResultOption = resultOption;
     wasm.addFunction(wrapperFunc);
     return wrapperFunc;
+  }
+
+  /**
+   * How a `tw` import carries `t`, when it is an `Option<T>`: as the
+   * IR's `T?`, the layout of which depends on `T`. Its arms' classes are
+   * instantiated, since the wrapper tests for and builds them.
+   */
+  #twOption(decl: DeclareFunction, t: Type, model: SemanticModel): TwOption | null {
+    let u = unwrapAliases(t);
+    if (!(u is UnionType) || u.types.length != 2) {
+      return null;
+    }
+    var some: ClassType | null = null;
+    var none: ClassType | null = null;
+    for (let member in u.types) {
+      if (member is ClassType) {
+        if (isWellKnown(WellKnown.SomeClass, member.name, member.sourcePath)) {
+          some = member;
+        } else if (isWellKnown(WellKnown.NoneClass, member.name, member.sourcePath)) {
+          none = member;
+        }
+      }
+    }
+    if (some == null || none == null) {
+      return null;
+    }
+    let someCt = some as ClassType;
+    let noneCt = none as ClassType;
+    let typeArguments = someCt.typeArguments;
+    if (typeArguments == null || typeArguments.length != 1) {
+      return null;
+    }
+    let payloadType = typeArguments[0];
+    let wasm = this.pass.wasm;
+    let payload = typeToValType(wasm, payloadType);
+    let pu = unwrapAliases(payloadType);
+    var isString = false;
+    let kind = if (pu is BooleanType || pu is I8Type || pu is U8Type || pu is I16Type || pu is U16Type) {
+      TwOptionKind.Niche
+    } else if (pu is EnumType) {
+      throw new Error(`'${decl.name.name}' carries an Option of the enum '${pu.name}', whose IR layout a tw import doesn't know`);
+    } else if (isRefValType(payload)) {
+      if (pu is ClassType) {
+        isString = isWellKnown(WellKnown.StringClass, pu.name, pu.sourcePath);
+      }
+      TwOptionKind.Ref
+    } else {
+      TwOptionKind.Flag
+    };
+    let niche = if (pu is BooleanType) 2 else -2147483648;
+    for (let ct in [someCt, noneCt]) {
+      this.pass.specializer.instantiateClassType(ct, this.pass.getClassModel(ct));
+      this.queueExplicitCtor(ct, "<constructor>");
+    }
+    return new TwOption(kind, niche, someCt, noneCt, payload, isString);
   }
 
   registerStringHashHelper(model: SemanticModel): void {

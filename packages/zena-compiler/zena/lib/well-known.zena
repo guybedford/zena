@@ -85,6 +85,10 @@ export enum WellKnown {
   ScopedAlias,
   /** `Option<T>`, what a Pending iteration step's future settles with. */
   OptionAlias,
+  /** `Some<T>` and `None`, its arms, which a `tw` import carries as the
+   * ts-gen IR's `T?` (external-name.zena). */
+  SomeClass,
+  NoneClass,
   /** `BigInt`, which backs `n`-suffixed and contextually typed integer literals. */
   BigIntClass,
 }
@@ -158,6 +162,8 @@ function buildLocations() {
   add(WellKnown.UnmanagedAlias, 'core', 'Unmanaged');
   add(WellKnown.ScopedAlias, 'core', 'Scoped');
   add(WellKnown.OptionAlias, 'core', 'Option');
+  add(WellKnown.SomeClass, 'core', 'Some');
+  add(WellKnown.NoneClass, 'core', 'None');
   add(WellKnown.AsyncIteratorInterface, 'async', 'AsyncIterator');
   add(WellKnown.AsyncIterableInterface, 'async', 'AsyncIterable');
   add(WellKnown.BigIntClass, 'bigint', 'BigInt');

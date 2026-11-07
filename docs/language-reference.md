@@ -5544,6 +5544,28 @@ The option applies to generic imports too, so `Map#get<{K},{V}>(K)` at
 `<String, String>` takes and returns JS string handles. It needs a target
 whose `String` is a JS string handle (`-t js`).
 
+An `Option<T>` parameter or result crosses as the IR's `T?`, laid out for
+each instantiation: a reference (or `String`'s handle) as itself or null,
+`boolean`, `i8`, `u8`, `i16` and `u16` as their `i32` carrier with a niche
+value for absence (2 for `boolean`, -2^31 for the others), and any other
+scalar as an `i32` presence flag followed by the value.
+
+```zena
+@external("tw:js/global", "Map#find<{V}>(str)", "tw")
+declare function find<V>(map: externref, key: String): Option<V>;
+// find<f64> imports (func (param externref externref) (result i32 f64))
+// find<Host> imports (func (param externref externref) (result externref))
+```
+
+The compiler rejects an `Option` of an enum, since the IR lays a nullable
+enum out by its shape, which a Zena enum doesn't say.
+
+A type argument naming an IR type must have a spelling, and one whose
+values cross the import, as a parameter or the result or an element or
+`Option` of one, must cross as the type it spells: a Zena class other than
+an extension class is an error there, since the bridge knows nothing of
+Zena structs.
+
 #### Re-exports
 
 Symbols can be re-exported from other libraries using `export { ... } from` or
