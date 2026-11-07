@@ -1,0 +1,25 @@
+// @mode: check
+// A type argument whose values cross inside an array or tuple crosses in
+// its Zena layout, so it must be its wire there too: a String is a struct
+// rather than its JS string handle, and an Option a class rather than T?.
+@external("tw:js/global", "first<{T}>(T[])", "tw")
+declare function first<T>(items: FixedArray<T>): T;
+
+@external("tw:js/global", "count<{K},{V}>((K,V)[])", "tw")
+declare function count<K, V>(entries: FixedArray<(K, V)>): u32;
+
+@external("tw:js/global", "id<{T}>(T)", "tw")
+declare function id<T>(value: T): T;
+
+export extension class Host on externref {}
+
+export function main(h: Host, ss: FixedArray<String>): void {
+  first<String>(["a"]); // @error: The type argument 'String' for '{T}' of 'first' is a String, which crosses inside an array or tuple as a Zena struct rather than its JS string handle, so it can't cross a tw import.
+  first<Option<f64>>([some<f64>(1.0)]); // @error: The type argument 'Some<f64> | None' for '{T}' of 'first' is an Option, which crosses inside an array or tuple as a Zena class rather than the IR's T?, so it can't cross a tw import.
+  count<String, f64>([("a", 1.0)]); // @error: The type argument 'String' for '{K}' of 'count' is a String, which crosses inside an array or tuple as a Zena struct rather than its JS string handle, so it can't cross a tw import.
+  id<FixedArray<String>>(ss); // @error: The type argument 'FixedArray<String>' for '{T}' of 'id' is a String, which crosses inside an array or tuple as a Zena struct rather than its JS string handle, so it can't cross a tw import.
+  first<f64>([1.0]);
+  first<Host>([h]);
+  count<f64, Host>([(1.0, h)]);
+  id<String>("a");
+}

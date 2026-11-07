@@ -22,7 +22,7 @@ import { stdlibLibraryOf, stdlibLibraryAnswers } from '../stdlib-manifest.zena';
 import { defaultImportedStringConstants, targetUsesJsStrings } from '../targets.zena';
 import {
   ExternalNameTemplate, crossesAsValue, externalImportSpec, renderExternalName,
-  twCrossingProblem
+  twCrossingProblem, twArgumentProblem
 } from '../external-name.zena';
 
 import {
@@ -2030,7 +2030,7 @@ export final class WasmModule {
           if (typeParameters[i].name != hole || !crossesAsValue(hole, ft)) {
             continue;
           }
-          let problem = twCrossingProblem(typeArgs[i], isString);
+          let problem = twArgumentProblem(hole, ft, typeArgs[i], isString);
           if (problem != null) {
             throw new Error(`The type argument for '{${hole}}' of '${decl.name.name}' ${problem}, so it can't cross a tw import`);
           }

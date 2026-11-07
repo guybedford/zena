@@ -1,6 +1,6 @@
 import { growable } from 'zena:core';
 import {
-  crossesAsValue, externalImportSpec, irTypeSpelling, parseExternalNameTemplate,
+  crossesAsValue, externalImportSpec, irTypeSpelling, parseExternalNameTemplate, twArgumentProblem,
   twCrossingProblem
 } from '../external-name.zena';
 import {
@@ -498,7 +498,7 @@ function checkTwTypeArguments(ctx: CheckerContext, call: CallExpression): void {
         continue;
       }
       let problem = if (crossesAsValue(hole, generic)) {
-        twCrossingProblem(arg, isString)
+        twArgumentProblem(hole, generic, arg, isString)
       } else if (irTypeSpelling(arg, isString) == null) {
         "has no ts-gen IR spelling"
       } else {
