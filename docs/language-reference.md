@@ -5440,6 +5440,16 @@ export class Point {
 }
 ```
 
+An exported function's Wasm export is its name. `@export` gives another
+one, such as a key a host binding looks it up by:
+
+```zena
+@export("default.fetch(Request,Env,ExecutionContext)")
+export function fetch(request: Request, env: Env, ctx: ExecutionContext): JsPromise<Response> {
+  // ...
+}
+```
+
 ### Imports (Host Interop)
 
 Zena allows importing functions from the host environment using the `declare`

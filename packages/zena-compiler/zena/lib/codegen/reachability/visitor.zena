@@ -3682,7 +3682,8 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
       this.pass.typeLowerer.discoverSignatureType(funcType, moduleModel);
     }
     this.#discoverFunctionBinding(
-        funcDecl.name as Pattern, funcDecl.func, funcDecl.exported, moduleModel);
+        funcDecl.name as Pattern, funcDecl.func, funcDecl.exported, moduleModel,
+        exportNameOf(funcDecl));
   }
 
   discoverVariableDeclaration(symId: SymbolId, varDecl: VariableDeclaration, moduleModel: SemanticModel): void {
@@ -3740,7 +3741,8 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
   }
 
   /** Shared by `let f = () => ...` and `function f() { ... }`. */
-  #discoverFunctionBinding(pattern: Pattern, funcExpr: FunctionExpression, exported: boolean, moduleModel: SemanticModel): void {
+  #discoverFunctionBinding(pattern: Pattern, funcExpr: FunctionExpression, exported: boolean, moduleModel: SemanticModel,
+      exportAs: String | null = null): void {
     let funcTypeNode = moduleModel.getNodeType(funcExpr);
     var isGeneric = false;
     if (funcTypeNode is FunctionType) {
@@ -3818,7 +3820,13 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
           }
           let isEntry = this.pass.program.entryPoint != null && moduleModel.sourcePath == (this.pass.program.entryPoint as CompilationUnit).ast.path;
           if ((exported || pattern.name == "main") && isEntry) {
-            let exportName = if (isOverloaded && wasmFunc.name != null) (wasmFunc.name as String) else pattern.name;
+            let exportName = if (exportAs != null) {
+              exportAs
+            } else if (isOverloaded && wasmFunc.name != null) {
+              wasmFunc.name as String
+            } else {
+              pattern.name
+            };
             this.pass.wasm.exportMap[exportName as ExportKey] = wasmFunc;
           }
           if (this.pass.currentReachable) {
@@ -4178,6 +4186,16 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
  * (getTypeKeyForSpecialization), so the body is one that cannot lower
  * `hash`/`eq`, which dispatch on their operand's type.
  */
+/** The `@export("name")` a function declaration gives, if any. */
+function exportNameOf(decl: FunctionDeclaration): String | null {
+  for (let dec in decl.decorators) {
+    if (dec.name == "export") {
+      return decoratorStringArg(dec, 0);
+    }
+  }
+  return null;
+}
+
 function noOpenTypeParameters(args: Array<Type>): boolean {
   for (let a in args) {
     if (a is TypeParameterType) { return false; }

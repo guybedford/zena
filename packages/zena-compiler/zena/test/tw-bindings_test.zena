@@ -55,4 +55,11 @@ export let tests = suite('tw bindings', () => {
       isTrue(wat.contains(want), `missing ${want}`);
     }
   });
+
+  test('@export names a Wasm export', (ctx) => {
+    let wat = compileWat('export-name');
+    isTrue(wat.contains('(export "default.fetch(Request,Env,ExecutionContext)"'), 'the fetch export');
+    isTrue(wat.contains('(export "version()"'), 'the version export');
+    isTrue(!wat.contains('(export "fetch"'), 'no export under the Zena name');
+  });
 });

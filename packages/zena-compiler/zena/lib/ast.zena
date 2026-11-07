@@ -299,6 +299,8 @@ export sealed class Statement extends Node {
     name: IdentifierPattern,
     func: FunctionExpression,
     exported: boolean,
+    /** `@export("name")` alone: the function's Wasm export name. */
+    decorators: GrowableArray<Decorator>,
     loc: SourceLocation | null)
   /**
    * A `using` statement: `using let file = open(path);`, or the unbound

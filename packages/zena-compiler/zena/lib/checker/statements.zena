@@ -10,7 +10,7 @@ import {
   ReturnStatement, ShieldedStatement, SourceLocation, Statement,
   SymbolDeclaration, ThisExpression, TuplePattern, TypeAliasDeclaration,
   TypeAnnotation, UnaryExpression, UsingStatement, VariableDeclaration,
-  WhileStatement, YieldStatement
+  WhileStatement, YieldStatement, decoratorStringArg
 } from '../ast.zena';
 import {
   ArrayType, ClassType, ErrorType, FieldInfo, FunctionType,
@@ -89,7 +89,21 @@ export function checkStatement(ctx: CheckerContext, stmt: Statement): void {
         }
       }
     }
-    case FunctionDeclaration {name as namePat, func}: {
+    case FunctionDeclaration {name as namePat, func, exported, decorators}: {
+      for (let dec in decorators) {
+        let exportName = if (dec.name == "export" && dec.args.length == 1) {
+          decoratorStringArg(dec, 0)
+        } else {
+          null
+        };
+        if (exportName == null || exportName.length == 0) {
+          ctx.error("A function takes only '@export(\"<name>\")', its Wasm export name.",
+              DiagnosticCode.TypeMismatch, dec.loc);
+        } else if (!exported) {
+          ctx.error("'@export' names an exported function's Wasm export; add 'export'.",
+              DiagnosticCode.TypeMismatch, dec.loc);
+        }
+      }
       let info = ctx.model.resolveDeclaration(namePat);
       let pendingOvs = if (info != null) ctx.pendingFunctionOverloads(info.id) else null;
       if (info != null && pendingOvs != null && pendingOvs.length > 1 &&

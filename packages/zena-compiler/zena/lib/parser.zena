@@ -610,7 +610,11 @@ export final class Parser {
           this.#check(TokenType.Abstract) || this.#check(TokenType.Extension)) {
         return this.#parseClassDeclarationEntry(decExported, startToken, false, decorators);
       }
-      throw this.#error("Expected 'declare' or a class after decorator");
+      if (this.#check(TokenType.Function) || this.#check(TokenType.Async) ||
+          this.#check(TokenType.Gen)) {
+        return this.#parseFunctionDeclaration(decExported, topLevel, startToken, decorators);
+      }
+      throw this.#error("Expected 'declare', a class or a function after decorator");
     }
     
     // Export prefix
@@ -882,7 +886,8 @@ export final class Parser {
    * declaration, and an expression body would just be a longer spelling of
    * `let name = (params) => expr`.
    */
-  #parseFunctionDeclaration(exported: boolean, topLevel: boolean, startToken: Token): FunctionDeclaration {
+  #parseFunctionDeclaration(exported: boolean, topLevel: boolean, startToken: Token,
+      decorators: GrowableArray<Decorator> = new Array<Decorator>(0)): FunctionDeclaration {
     var isGenerator = false;
     var isAsync = false;
     if (this.#match(TokenType.Gen)) {
@@ -929,7 +934,7 @@ export final class Parser {
     let func = new FunctionExpression(
       typeParameters, params, returnType, body, isGenerator, isAsync, contracts,
       this.#makeLocation(startToken));
-    return new FunctionDeclaration(name, func, exported, this.#makeLocation(startToken));
+    return new FunctionDeclaration(name, func, exported, decorators, this.#makeLocation(startToken));
   }
 
   /** Whether the token `offset` past the current one is the name `word`. */
@@ -4275,7 +4280,13 @@ export final class Parser {
   #parseDecorator(): Decorator {
     let startToken = this.#peek();
     this.#consume(TokenType.At, "Expected '@'");
-    let path = growable<Identifier>([this.#parseIdentifier()]);
+    // `@export` names the keyword, as `@external`'s counterpart.
+    let first = if (this.#match(TokenType.Export)) {
+      new Identifier("export", this.#makeLocation(this.#previous()))
+    } else {
+      this.#parseIdentifier()
+    };
+    let path = growable<Identifier>([first]);
     var name = path[0].name;
     while (this.#match(TokenType.Dot)) {
       let segment = this.#parseIdentifier();

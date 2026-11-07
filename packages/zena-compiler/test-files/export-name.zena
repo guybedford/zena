@@ -1,0 +1,16 @@
+// Fixture for tw-bindings_test.zena: `@export` names a function's
+// Wasm export, as a ts-gen tw bridge looks exports up by IR key.
+
+@export("default.fetch(Request,Env,ExecutionContext)")
+export function fetch(request: externref, env: externref, ctx: externref): externref {
+  return request;
+}
+
+@export("version()")
+export function version(): i32 {
+  return 1;
+}
+
+export function main(): i32 {
+  return 0;
+}
