@@ -34,10 +34,19 @@ function templateError(message: String) {
 export function parseExternalNameTemplate(name: String): ExternalNameTemplate {
   let pieces = new Array<String>();
   let holes = new Array<String>();
+  var piece = "";
   var from = 0;
   var i = 0;
   while (i < name.length) {
     let c = name.getByteAt(i);
+    // `{{` and `}}` are a literal brace, as a name the IR spells with one
+    // (an inline object type) needs.
+    if ((c == 123 || c == 125) && i + 1 < name.length && name.getByteAt(i + 1) == c) {
+      piece = `${piece}${name.sliceBytes(from, i + 1)}`;
+      i += 2;
+      from = i;
+      continue;
+    }
     if (c == 125) { // '}'
       return templateError("Unmatched '}' in the @external name");
     }
@@ -58,13 +67,27 @@ export function parseExternalNameTemplate(name: String): ExternalNameTemplate {
     if (j == i + 1) {
       return templateError("Empty '{}' in the @external name");
     }
-    pieces.push(name.sliceBytes(from, i));
+    pieces.push(`${piece}${name.sliceBytes(from, i)}`);
+    piece = "";
     holes.push(name.sliceBytes(i + 1, j));
     from = j + 1;
     i = j + 1;
   }
-  pieces.push(name.sliceBytes(from, name.length));
+  pieces.push(`${piece}${name.sliceBytes(from, name.length)}`);
   return new ExternalNameTemplate(pieces, holes, null);
+}
+
+/**
+ * A non-generic declaration's import name: its `@external` name with
+ * `{{` and `}}` read as braces. It has no placeholders (the checker
+ * reports any), so only the literal text is left.
+ */
+export function literalExternalName(name: String): String {
+  let template = parseExternalNameTemplate(name);
+  if (template.error != null || template.holes.length > 0) {
+    return name;
+  }
+  return template.pieces[0];
 }
 
 function joinSpellings(types: Array<Type>, isString: (ct: ClassType) => boolean): String | null {

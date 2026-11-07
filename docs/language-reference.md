@@ -5514,6 +5514,8 @@ extension class WebAssembly_Module on externref {}
 // id<WebAssembly_Module> imports "id<WebAssembly.Module>(T)"
 ```
 
+`{{` and `}}` are literal braces, in any `@external` name.
+
 A placeholder that names none of the function's type parameters is a compile
 error. So is a type argument with no spelling, such as a record, an interface or
 a union other than `T | null`.

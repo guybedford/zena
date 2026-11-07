@@ -23,6 +23,12 @@ declare function call<F>(f: F): void;
 @external("tw:js/global", "maybe<{T}>")
 declare function maybe<T>(value: T): void;
 
+@external("tw:js/global", "Rec{{a:str}}.new<{T}>()")
+declare function recNew<T>(): T;
+
+@external("tw:js/global", "Rec{{a:str}}.make()")
+declare function recMake(): externref;
+
 @external("env", "getRequest")
 declare function getRequest(): Request;
 
@@ -45,5 +51,7 @@ export function main(): f64 {
   call<(x: i32) => String>((x: i32) => 'z');
   call<() => void>(() => {});
   maybe<String | null>(null);
+  let rec = recNew<i32>();
+  let made = recMake();
   return if (flag) a + b else a - b;
 }

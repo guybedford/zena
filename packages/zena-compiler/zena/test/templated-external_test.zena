@@ -40,7 +40,9 @@ export let tests = suite('templated @external names', () => {
         'pair<(i32,str),JsMap<str,f64>>\n' +
         'call<fn(i32)->str>\n' +
         'call<fn()>\n' +
-        'maybe<str?>\n');
+        'maybe<str?>\n' +
+        'Rec{a:str}.new<i32>()\n' +
+        'Rec{a:str}.make()\n');
   });
 
   test('a non-generic import keeps its written name', (ctx) => {

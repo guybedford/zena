@@ -40,7 +40,7 @@ import { WellKnown, isWellKnown } from '../../well-known.zena';
 import { stdlibLibraryOf, stdlibLibraryAnswers } from '../../stdlib-manifest.zena';
 import { growable } from 'zena:core';
 import { targetUsesJsStrings } from '../../targets.zena';
-import { ExternalImportSpec, externalImportSpec } from '../../external-name.zena';
+import { ExternalImportSpec, externalImportSpec, literalExternalName } from '../../external-name.zena';
 
 /**
  * TypeLowerer translates Zena semantic types into their target WebAssembly representation,
@@ -4011,7 +4011,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
       }
       let funcType = moduleModel.getNodeType(decl) as FunctionType;
       let finalFunc = this.createExternalImport(decl, moduleModel, funcType,
-          external, external.name, decl.name.name);
+          external, literalExternalName(external.name), decl.name.name);
       this.pass.wasm.functionMap[sym.id] = finalFunc;
       if (this.pass.currentReachable) {
         this.pass.markFunctionReached(finalFunc);
