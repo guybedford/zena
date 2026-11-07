@@ -480,6 +480,7 @@ function printUsingStatement(stmt: UsingStatement): Doc {
 function printFunctionDeclaration(decl: FunctionDeclaration): Doc {
   let fn = decl.func;
   let parts = new Array<Doc>();
+  printDecorators(decl.decorators, parts);
   if (decl.exported) { parts.push(text('export ')); }
   if (fn.isGenerator) { parts.push(text('gen ')); }
   if (fn.isAsync) { parts.push(text('async ')); }
@@ -672,6 +673,7 @@ function printForInStatement(stmt: ForInStatement): Doc {
 
 function printClassDeclaration(decl: ClassDeclaration): Doc {
   let parts = new Array<Doc>();
+  printDecorators(decl.decorators, parts);
   if (decl.exported) { parts.push(text('export ')); }
   if (decl.isResource) { parts.push(text('resource ')); }
   if (decl.isAbstract) { parts.push(text('abstract ')); }
@@ -1161,6 +1163,7 @@ function printInterfaceMember(member: Node): Doc {
 
 function printEnumDeclaration(decl: EnumDeclaration): Doc {
   let parts = new Array<Doc>();
+  printDecorators(decl.decorators, parts);
   if (decl.exported) { parts.push(text('export ')); }
   parts.push(text('enum '));
   parts.push(text(decl.name.name));

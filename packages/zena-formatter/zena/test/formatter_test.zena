@@ -544,6 +544,21 @@ let tests = suite('formatter', () => {
     isTrue(formatted.startsWith('export decorator signal<T>(var value: T) {'), 'decorator header');
   });
 
+  test('keeps the decorators of classes, functions and enums', (t) => {
+    checkStable('declaration decorators', dedentRaw`
+      @spelling('ns.Box')
+      export extension class Box on externref {}
+
+      @export('default.fetch')
+      export function fetch(): void {}
+
+      @spelling('ns.Unit')
+      export enum Unit {
+        Day
+      }
+    `);
+  });
+
   test('formats class with method', (t) => {
     checkStable('class method', dedentRaw`
       class Point {
