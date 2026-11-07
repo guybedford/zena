@@ -1,30 +1,30 @@
 // Fixture for tw-bindings_test.zena: Strings inside a tw value's arrays
 // and tuples cross as their JS string handles, copied per instantiation.
 
-@external("tw:js/global", "first<{T}>(T[])", "tw")
+@external("tw:js/global", "first<{T}>(arr<T>)", "tw")
 declare function first<T>(items: FixedArray<T>): T;
 
-@external("tw:js/global", "reversed<{T}>(T[])", "tw")
+@external("tw:js/global", "reversed<{T}>(arr<T>)", "tw")
 declare function reversed<T>(items: FixedArray<T>): FixedArray<T>;
 
-@external("tw:js/global", "rows<{T}>(T[][])", "tw")
+@external("tw:js/global", "rows<{T}>(arr<arr<T>>)", "tw")
 declare function rows<T>(rows: FixedArray<FixedArray<T>>): FixedArray<FixedArray<T>>;
 
-@external("tw:js/global", "entries<{K},{V}>((K,V)[])", "tw")
+@external("tw:js/global", "entries<{K},{V}>(arr<(K,V)>)", "tw")
 declare function entries<K, V>(entries: FixedArray<(K, V)>): FixedArray<(K, V)>;
 
-@external("tw:js/global", "singles<{T}>((T,)[])", "tw")
+@external("tw:js/global", "singles<{T}>(arr<(T,)>)", "tw")
 declare function singles<T>(items: FixedArray<T>): FixedArray<T>;
 
-@external("tw:js/global", "maybe<{T}>(T[]?)", "tw")
+@external("tw:js/global", "maybe<{T}>(arr<T>?)", "tw")
 declare function maybe<T>(items: Option<FixedArray<T>>): Option<FixedArray<T>>;
 
-@export("echo<{T}>(T[])", "tw")
+@export("echo<{T}>(arr<T>)", "tw")
 export function echo<T>(items: FixedArray<T>): FixedArray<T> {
   return items;
 }
 
-@export("pairs((str,f64)[])", "tw")
+@export("pairs(arr<(str,f64)>)", "tw")
 export function pairs(p: FixedArray<(String, f64)>): FixedArray<(String, f64)> {
   return p;
 }

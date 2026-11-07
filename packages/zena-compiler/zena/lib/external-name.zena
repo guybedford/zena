@@ -140,6 +140,15 @@ function suffixSpelling(t: Type, suffix: String,
   return `${spelled}${suffix}`;
 }
 
+/** A Zena array is the IR's JS `Array`, `arr<T>`. */
+function arraySpelling(t: Type, isString: (ct: ClassType) => boolean): String | null {
+  let spelled = irTypeSpelling(t, isString);
+  if (spelled == null) {
+    return null;
+  }
+  return `arr<${spelled}>`;
+}
+
 /** `T | null` is the IR's `T?`; the IR has no other unions. */
 function nullableSpelling(types: Array<Type>,
     isString: (ct: ClassType) => boolean): String | null {
@@ -247,12 +256,12 @@ export function irTypeSpelling(t: Type, isString: (ct: ClassType) => boolean): S
       if (isString(ct)) {
         "str"
       } else if (ct.name == "array" && typeArguments != null && typeArguments.length == 1) {
-        suffixSpelling(typeArguments[0], "[]", isString)
+        arraySpelling(typeArguments[0], isString)
       } else {
         namedSpelling((ct.genericSource ?? ct).irSpelling ?? ct.name, typeArguments, isString)
       }
     }
-    case ArrayType {elementType}: suffixSpelling(elementType, "[]", isString)
+    case ArrayType {elementType}: arraySpelling(elementType, isString)
     case TupleType {elementTypes, row}: {
       if (row != null) null else tupleSpelling(elementTypes, isString)
     }

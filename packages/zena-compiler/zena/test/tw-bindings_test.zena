@@ -106,19 +106,19 @@ export let tests = suite('tw bindings', () => {
     let pairs = typeIndex(wat, `(array (mut (ref null ${pair})))`);
     isTrue(strs >= 0 && rows >= 0 && pair >= 0 && pairs >= 0, 'the wire types');
     for (let (name, sig) in [
-      ('first<str>(T[])', `(param (ref ${strs})) (result externref)`),
-      ('reversed<str>(T[])', `(param (ref ${strs})) (result (ref ${strs}))`),
-      ('rows<str>(T[][])', `(param (ref ${rows})) (result (ref ${rows}))`),
-      ('entries<str,f64>((K,V)[])', `(param (ref ${pairs})) (result (ref ${pairs}))`),
-      // Zena has no 1-tuple, so (T,)[] is T[].
-      ('singles<str>((T,)[])', `(param (ref ${strs})) (result (ref ${strs}))`),
-      ('maybe<str>(T[]?)', `(param (ref null ${strs})) (result (ref null ${strs}))`),
+      ('first<str>(arr<T>)', `(param (ref ${strs})) (result externref)`),
+      ('reversed<str>(arr<T>)', `(param (ref ${strs})) (result (ref ${strs}))`),
+      ('rows<str>(arr<arr<T>>)', `(param (ref ${rows})) (result (ref ${rows}))`),
+      ('entries<str,f64>(arr<(K,V)>)', `(param (ref ${pairs})) (result (ref ${pairs}))`),
+      // Zena has no 1-tuple, so arr<(T,)> is arr<T>.
+      ('singles<str>(arr<(T,)>)', `(param (ref ${strs})) (result (ref ${strs}))`),
+      ('maybe<str>(arr<T>?)', `(param (ref null ${strs})) (result (ref null ${strs}))`),
     ]) {
       isTrue(importsAt(wat, name, sig), `${name} imports as ${sig}`);
     }
-    isTrue(exportedAt(wat, 'echo<str>(T[])', `(param (ref ${strs})) (result (ref ${strs}))`),
+    isTrue(exportedAt(wat, 'echo<str>(arr<T>)', `(param (ref ${strs})) (result (ref ${strs}))`),
         'a generic export');
-    isTrue(exportedAt(wat, 'pairs((str,f64)[])', `(param (ref ${pairs})) (result (ref ${pairs}))`),
+    isTrue(exportedAt(wat, 'pairs(arr<(str,f64)>)', `(param (ref ${pairs})) (result (ref ${pairs}))`),
         'an export of tuples');
   });
 
