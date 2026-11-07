@@ -1,0 +1,7 @@
+// Fixture for tw-bindings_test.zena: `@export` names a Wasm export in
+// any module of the program.
+import { helper } from './export-name-lib.zena';
+
+export function main(): i32 {
+  return helper();
+}

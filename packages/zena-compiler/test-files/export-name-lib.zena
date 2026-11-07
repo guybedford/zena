@@ -1,0 +1,12 @@
+// Imported by export-name-library.zena: a library's `@export` function
+// is a Wasm export too, though nothing in the program calls it.
+
+@export("tw:call:fn(f64)")
+export function callF64(env: anyref, a: f64): void {
+  let f = env as (a: f64) => void;
+  f(a);
+}
+
+export function helper(): i32 {
+  return 1;
+}

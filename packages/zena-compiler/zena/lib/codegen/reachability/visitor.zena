@@ -3819,7 +3819,8 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
             this.pass.wasm.functionMap[sym.id] = wasmFunc;
           }
           let isEntry = this.pass.program.entryPoint != null && moduleModel.sourcePath == (this.pass.program.entryPoint as CompilationUnit).ast.path;
-          if ((exported || pattern.name == "main") && isEntry) {
+          // An `@export` names a Wasm export wherever it's declared.
+          if (((exported || pattern.name == "main") && isEntry) || (exported && exportAs != null)) {
             let exportName = if (exportAs != null) {
               exportAs
             } else if (isOverloaded && wasmFunc.name != null) {
@@ -4289,7 +4290,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
  * `hash`/`eq`, which dispatch on their operand's type.
  */
 /** The `@export("name")` a function declaration gives, if any. */
-function exportNameOf(decl: FunctionDeclaration): String | null {
+export function exportNameOf(decl: FunctionDeclaration): String | null {
   for (let dec in decl.decorators) {
     if (dec.name == "export") {
       return decoratorStringArg(dec, 0);

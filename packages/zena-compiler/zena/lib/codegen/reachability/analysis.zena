@@ -28,7 +28,7 @@ import {
 import { Referrer, RecordResultCall, ReachabilityContext, SpecializerInterface, TypeLowererInterface, ReachabilityVisitorInterface, GenericInterfaceMethodDemand, GenericClassMethodDemand } from './context.zena';
 import { ClassHierarchyAnalysis } from './hierarchy.zena';
 import { Specializer, applyMixinPrivateScope } from './specialization.zena';
-import { ReachabilityVisitor, TypeLowerer } from './visitor.zena';
+import { ReachabilityVisitor, TypeLowerer, exportNameOf } from './visitor.zena';
 import { externalImportSpec, parseExternalNameTemplate } from '../../external-name.zena';
 import { walkEnter } from '../../visitor.zena';
 import { performance } from '../../time.zena';
@@ -1465,12 +1465,17 @@ export final class ReachabilityAnalysis implements ReachabilityContext {
       // did — made the checkable traversal walk the entire stdlib, and
       // walking it instantiates.
       let rootsExports = isEntry || isHostBoundary;
-      if (!rootsExports) {
-        continue;
-      }
       let gKeys = model.globalDeclarations.keys();
       for (let id in gKeys) {
         let decl = model.globalDeclarations[id];
+        // A library's `@export` functions are Wasm exports the host
+        // calls, as a ts-gen binding's callback trampolines are.
+        if (!rootsExports) {
+          if (decl is FunctionDeclaration && decl.exported && exportNameOf(decl) != null) {
+            this.queueReferrer(new Referrer(true, id, -1, model, null, true));
+          }
+          continue;
+        }
         var isExported = false;
         var isMain = false;
 

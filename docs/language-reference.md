@@ -5450,6 +5450,10 @@ export function fetch(request: Request, env: Env, ctx: ExecutionContext): JsProm
 }
 ```
 
+An `@export` function is a Wasm export in any module of the program, not
+only the entry, so a library can export what its host calls, such as a
+binding's callback trampolines.
+
 ### Imports (Host Interop)
 
 Zena allows importing functions from the host environment using the `declare`

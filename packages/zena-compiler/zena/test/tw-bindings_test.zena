@@ -91,4 +91,9 @@ export let tests = suite('tw bindings', () => {
     isTrue(wat.contains('(export "version()"'), 'the version export');
     isTrue(!wat.contains('(export "fetch"'), 'no export under the Zena name');
   });
+
+  test('@export names a Wasm export in a library too', (ctx) => {
+    let wat = compileWat('export-name-library');
+    isTrue(wat.contains('(export "tw:call:fn(f64)"'), 'the library export');
+  });
 });
