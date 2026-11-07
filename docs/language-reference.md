@@ -5503,10 +5503,11 @@ instantiation from its import name:
 | `(a: A, b: B) => R`                                                | `fn(A,B)->R`               |
 | `(a: A) => void`                                                   | `fn(A)`                    |
 | a distinct type or class `N<A, B>`                                 | `N<A,B>`                   |
+| an enum `N`                                                        | `N`                        |
 | a type alias                                                       | the spelling of its target |
 
-A class whose IR name is not a Zena name, such as a namespaced or
-module-scoped class, gives its IR name with `@spelling`:
+A class or enum whose IR name is not a Zena name, such as a namespaced or
+module-scoped one, gives its IR name with `@spelling`:
 
 ```zena
 @spelling("WebAssembly.Module")

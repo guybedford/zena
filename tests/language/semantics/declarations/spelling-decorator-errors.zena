@@ -1,0 +1,10 @@
+// @mode: check
+// An enum takes only `@spelling`, its ts-gen IR name.
+@export("E") // @error: An enum takes only '@spelling("<ts-gen IR name>")', which names the enum in templated @external names.
+export enum E { A }
+
+@spelling() // @error: An enum takes only '@spelling("<ts-gen IR name>")', which names the enum in templated @external names.
+export enum F { A }
+
+@spelling("ns.G")
+export enum G { A }

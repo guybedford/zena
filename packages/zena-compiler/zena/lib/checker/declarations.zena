@@ -204,6 +204,21 @@ function isEnumNumberLiteral(initializer: Expression): boolean {
 }
 
 export function checkEnumDeclaration(ctx: CheckerContext, ed: EnumDeclaration): void {
+  for (let dec in ed.decorators) {
+    let spelling = if (dec.name == "spelling" && dec.args.length == 1) {
+      decoratorStringArg(dec, 0)
+    } else {
+      null
+    };
+    if (spelling == null || spelling.length == 0) {
+      ctx.error(
+        "An enum takes only '@spelling(\"<ts-gen IR name>\")', which names " +
+        "the enum in templated @external names.",
+        DiagnosticCode.TypeMismatch,
+        dec.loc
+      );
+    }
+  }
   let i32Type = new I32Type();
   let stringType = ctx.tryResolveWellKnownType(WellKnown.StringClass);
   let {name} = ed.name;

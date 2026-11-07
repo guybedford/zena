@@ -614,7 +614,10 @@ export final class Parser {
           this.#check(TokenType.Gen)) {
         return this.#parseFunctionDeclaration(decExported, topLevel, startToken, decorators);
       }
-      throw this.#error("Expected 'declare', a class or a function after decorator");
+      if (this.#match(TokenType.Enum)) {
+        return this.#parseEnumDeclaration(decExported, startToken, decorators);
+      }
+      throw this.#error("Expected 'declare', a class, a function or an enum after decorator");
     }
     
     // Export prefix
@@ -4630,7 +4633,8 @@ export final class Parser {
     return new MixinDeclaration(name, typeParameters, on, mixins, body, exported, decoratorSubject, this.#makeLocation(startToken));
   }
   
-  #parseEnumDeclaration(exported: boolean, startToken: Token): EnumDeclaration {
+  #parseEnumDeclaration(exported: boolean, startToken: Token,
+      decorators: GrowableArray<Decorator> = new Array<Decorator>(0)): EnumDeclaration {
     let name = this.#parseIdentifier();
     this.#consume(TokenType.LBrace, "Expected '{' after enum name");
     
@@ -4651,7 +4655,7 @@ export final class Parser {
     
     this.#consume(TokenType.RBrace, "Expected '}' after enum body");
     
-    return new EnumDeclaration(name, members, exported, this.#makeLocation(startToken));
+    return new EnumDeclaration(name, members, exported, decorators, this.#makeLocation(startToken));
   }
   
   #parseSymbolDeclaration(exported: boolean, startToken: Token): SymbolDeclaration {

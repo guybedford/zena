@@ -403,6 +403,7 @@ export sealed class Statement extends Node {
     name: Identifier,
     members: GrowableArray<EnumMember>,
     exported: boolean,
+    decorators: GrowableArray<Decorator>,
     loc: SourceLocation | null)
   /**
    * A `mixin` declaration, or a `decorator` declaration, which is a mixin

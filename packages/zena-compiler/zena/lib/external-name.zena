@@ -11,9 +11,9 @@ import {
   Type, I32Type, U32Type, I64Type, U64Type, F32Type, F64Type, U8Type,
   U16Type, I8Type, I16Type, BooleanType, VoidType, NullType, ExternRefType,
   ArrayType, TupleType, InlineTupleType, UnionType, ClassType, FunctionType,
-  TypeParameterType, TypeAliasType, unwrapAliases,
+  TypeParameterType, TypeAliasType, EnumType, unwrapAliases,
 } from './types.zena';
-import { DeclareFunction, decoratorStringArg } from './ast.zena';
+import { Decorator, DeclareFunction, decoratorStringArg } from './ast.zena';
 
 /**
  * An `@external` name split at its placeholders: `pieces` is the literal
@@ -179,11 +179,24 @@ function functionSpelling(ft: FunctionType,
 }
 
 /**
+ * The name a declaration's `@spelling("<IR name>")` gives it, if any.
+ */
+export function declaredSpelling(decorators: GrowableArray<Decorator>): String | null {
+  for (let dec in decorators) {
+    if (dec.name == "spelling" && dec.args.length == 1) {
+      return decoratorStringArg(dec, 0);
+    }
+  }
+  return null;
+}
+
+/**
  * The ts-gen IR spelling of `t`, or null when the IR has no spelling for
  * it. A distinct type spells as its name, which is how a binding names
  * the IR declaration it stands for (`distinct type Request = externref`
- * spells `Request`), and a class as its `@spelling` if it has one. `isString` tells the standard library's String,
- * which is the IR's unboxed `str`.
+ * spells `Request`), and a class or enum as its `@spelling` if it has
+ * one. `isString` tells the standard library's String, which is the IR's
+ * unboxed `str`.
  */
 export function irTypeSpelling(t: Type, isString: (ct: ClassType) => boolean): String | null {
   return match (t) {
@@ -216,6 +229,7 @@ export function irTypeSpelling(t: Type, isString: (ct: ClassType) => boolean): S
     case InlineTupleType {elementTypes}: tupleSpelling(elementTypes, isString)
     case UnionType {types}: nullableSpelling(types, isString)
     case FunctionType as ft: functionSpelling(ft, isString)
+    case EnumType as et: declaredSpelling(et.declaration.decorators) ?? et.name
     case TypeAliasType as ta: {
       if (ta.isDistinct) {
         namedSpelling(ta.name, ta.typeArguments, isString)

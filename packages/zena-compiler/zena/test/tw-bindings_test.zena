@@ -45,12 +45,14 @@ export let tests = suite('tw bindings', () => {
     compileWat('unreached-imported-global');
   });
 
-  test('@spelling names a class in templated imports', (ctx) => {
+  test('@spelling names a class or enum in templated imports', (ctx) => {
     let wat = compileWat('tw-spelling');
     for (let want in [
       '"id<WebAssembly.Module>(T)"',
       '"id<node:fs.Stats<f64>>(T)"',
       '"id<Plain>(T)"',
+      '"id<Temporal.Unit>(T)"',
+      '"id<Color>(T)"',
     ]) {
       isTrue(wat.contains(want), `missing ${want}`);
     }
