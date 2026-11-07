@@ -1,9 +1,9 @@
 import { Program } from '../../program.zena';
 import { RecordDispatchInfo, WasmModule, WasmFunction, WasmStruct } from '../wasm-module.zena';
 import { SemanticModel, SymbolDependencies } from '../../semantic-model.zena';
-import { Type, ClassType, InterfaceType, FunctionType } from '../../types.zena';
+import { Type, ClassType, InterfaceType, FunctionType, TypeParameterType } from '../../types.zena';
 import { WellKnown } from '../../well-known.zena';
-import { Node, CallExpression, ClassDeclaration, InterfaceDeclaration, ImportDeclaration, VariableDeclaration, FunctionDeclaration, DeclareFunction } from '../../ast.zena';
+import { Node, CallExpression, ClassDeclaration, InterfaceDeclaration, ImportDeclaration, VariableDeclaration, FunctionDeclaration, FunctionExpression, DeclareFunction } from '../../ast.zena';
 import { Set, HashMap, HashSet } from 'zena:collections';
 
 import { SymbolId } from '../../scope/symbol.zena';
@@ -140,6 +140,9 @@ export interface ReachabilityVisitorInterface {
   createExternalImport(decl: DeclareFunction, model: SemanticModel,
       funcType: FunctionType, spec: ExternalImportSpec, importName: String,
       functionName: String): WasmFunction;
+  exportInstance(func: WasmFunction, decl: FunctionDeclaration, funcType: FunctionType,
+      node: FunctionExpression, model: SemanticModel,
+      typeParameters: Array<TypeParameterType> | null, typeArgs: Array<Type>): void;
   registerWrapper(keyName: String, ft: FunctionType, targetWasmFunc: WasmFunction, model: SemanticModel): void;
   discoverFunctionValueWrapper(ft: FunctionType, model: SemanticModel): void;
   queueCancellationMachinery(futureType: ClassType, model: SemanticModel): void;

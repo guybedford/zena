@@ -2470,6 +2470,13 @@ export final class Specializer implements SpecializerInterface {
     this.pass.nodeIdToNode[(funcExpr as Node).id as i32] = funcExpr;
     this.pass.nodeIdToModel[(funcExpr as Node).id as i32] = model;
     this.pass.markFunctionReached(wasmFunc);
+    if (parentNode is FunctionDeclaration && parentNode.exported) {
+      let instanceType = substituteTypeParamsInCodegen(this.pass.wasm, typeParams, typeArgs, funcTypeNode);
+      if (instanceType is FunctionType) {
+        this.pass.visitor.exportInstance(wasmFunc, parentNode, instanceType, funcExpr, model,
+            typeParams, typeArgs);
+      }
+    }
     // A module-level function's checker-recorded dependencies live on
     // its SYMBOL, which the node referrer above never consults. Without
     // this substituted traversal, generic functions this body calls

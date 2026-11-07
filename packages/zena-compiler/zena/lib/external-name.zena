@@ -49,7 +49,7 @@ export function parseExternalNameTemplate(name: String): ExternalNameTemplate {
       continue;
     }
     if (c == 125) { // '}'
-      return templateError("Unmatched '}' in the @external name");
+      return templateError("Unmatched '}'");
     }
     if (c != 123) { // '{'
       i += 1;
@@ -58,15 +58,15 @@ export function parseExternalNameTemplate(name: String): ExternalNameTemplate {
     var j = i + 1;
     while (j < name.length && name.getByteAt(j) != 125) {
       if (name.getByteAt(j) == 123) {
-        return templateError("Nested '{' in the @external name");
+        return templateError("Nested '{'");
       }
       j += 1;
     }
     if (j >= name.length) {
-      return templateError("Unclosed '{' in the @external name");
+      return templateError("Unclosed '{'");
     }
     if (j == i + 1) {
-      return templateError("Empty '{}' in the @external name");
+      return templateError("Empty '{}'");
     }
     pieces.push(`${piece}${name.sliceBytes(from, i)}`);
     piece = "";
@@ -376,7 +376,8 @@ function structInAll(ts: Array<Type>, isString: (ct: ClassType) => boolean): Str
  */
 export function renderExternalName(template: ExternalNameTemplate,
     functionName: String, typeParameters: Array<TypeParameterType> | null,
-    typeArguments: Array<Type>, isString: (ct: ClassType) => boolean): String {
+    typeArguments: Array<Type>, isString: (ct: ClassType) => boolean,
+    decorator: String = "external"): String {
   var out = template.pieces[0];
   for (var h = 0; h < template.holes.length; h += 1) {
     let hole = template.holes[h];
@@ -389,11 +390,11 @@ export function renderExternalName(template: ExternalNameTemplate,
       }
     }
     if (index < 0 || index >= typeArguments.length) {
-      throw new Error(`'{${hole}}' in the @external name of '${functionName}' names no type parameter`);
+      throw new Error(`'{${hole}}' in the @${decorator} name of '${functionName}' names no type parameter`);
     }
     let spelled = irTypeSpelling(typeArguments[index], isString);
     if (spelled == null) {
-      throw new Error(`The type argument for '${hole}' of '${functionName}' has no ts-gen IR spelling for its @external name`);
+      throw new Error(`The type argument for '${hole}' of '${functionName}' has no ts-gen IR spelling for its @${decorator} name`);
     }
     out = `${out}${spelled}${template.pieces[h + 1]}`;
   }

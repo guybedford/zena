@@ -1,0 +1,22 @@
+// Fixture for tw-bindings_test.zena: a generic @export exports each
+// instantiation under its name, templated as an @external name is.
+
+@export("tw:call:fn(Str)->{U}", "tw")
+export function call<U>(env: anyref, p0: externref): U {
+  let f = env as (a0: externref) => U;
+  return f(p0);
+}
+
+@export("id<{T}>(T)", "tw")
+export function id<T>(value: T): T {
+  return value;
+}
+
+@export("braces{{}}()", "tw")
+export function braces(): void {}
+
+export let main = (): f64 => {
+  let s = id<String>("s");
+  let f = (a0: externref): f64 => 1.0;
+  return id<f64>(1.0) + call<f64>(f as anyref, s.handle) + (s.length as f64);
+};

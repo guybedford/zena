@@ -1,0 +1,14 @@
+// @mode: check
+// An `@export` name is templated as an `@external` name is: each
+// placeholder names one of the function's type parameters.
+@export("id<{U}>(T)", "tw") // @error: '{U}' in the @export name of 'id' names no type parameter.
+export function id<T>(value: T): T { return value; }
+
+@export("f<{T}>()", "tw") // @error: '{T}' in the @export name of 'f' names no type parameter.
+export function f(): i32 { return 1; }
+
+@export("g<{T>()", "tw") // @error: Unclosed '{' in the @export name of 'g'.
+export function g<T>(): i32 { return 1; }
+
+@export("h{{}}()", "tw")
+export function h(): i32 { return 1; }

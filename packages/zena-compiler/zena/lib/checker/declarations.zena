@@ -783,7 +783,7 @@ function checkExternalNameTemplate(ctx: CheckerContext, df: DeclareFunction,
     let template = parseExternalNameTemplate(externalName);
     let templateError = template.error;
     if (templateError != null) {
-      ctx.error(`${templateError} of '${df.name.name}'.`, DiagnosticCode.TypeMismatch, dec.loc);
+      ctx.error(`${templateError} in the @external name of '${df.name.name}'.`, DiagnosticCode.TypeMismatch, dec.loc);
       continue;
     }
     for (let hole in template.holes) {

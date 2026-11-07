@@ -40,7 +40,10 @@ import { WellKnown, isWellKnown } from '../../well-known.zena';
 import { stdlibLibraryOf, stdlibLibraryAnswers } from '../../stdlib-manifest.zena';
 import { growable } from 'zena:core';
 import { targetUsesJsStrings } from '../../targets.zena';
-import { ExternalImportSpec, externalImportSpec, literalExternalName, twExportOptions } from '../../external-name.zena';
+import {
+  ExternalImportSpec, externalImportSpec, literalExternalName, twExportOptions,
+  parseExternalNameTemplate, renderExternalName,
+} from '../../external-name.zena';
 
 /**
  * TypeLowerer translates Zena semantic types into their target WebAssembly representation,
@@ -3822,7 +3825,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
           // An `@export` names a Wasm export wherever it's declared.
           if (((exported || pattern.name == "main") && isEntry) || (exported && exportAs != null)) {
             let exportName = if (exportAs != null) {
-              exportAs
+              literalExternalName(exportAs)
             } else if (isOverloaded && wasmFunc.name != null) {
               wasmFunc.name as String
             } else {
@@ -4280,6 +4283,32 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
    * itself, or a wrapper taking `String`s as JS string handles and each
    * `Option<T>` as the IR's `T?`, and returning them so.
    */
+  /**
+   * The instantiation `func` of a generic `@export` function, exported
+   * under its name rendered at `typeArgs` as a templated `@external`
+   * name is, so a `tw` bridge calls each instantiation by the IR types
+   * it spells. `funcType` is the instantiation's signature.
+   */
+  exportInstance(func: WasmFunction, decl: FunctionDeclaration, funcType: FunctionType,
+      node: FunctionExpression, model: SemanticModel,
+      typeParameters: Array<TypeParameterType> | null, typeArgs: Array<Type>): void {
+    let raw = exportNameOf(decl);
+    if (raw == null || !noOpenTypeParameters(typeArgs)) {
+      return;
+    }
+    let wasm = this.pass.wasm;
+    let stringClass = wasm.stringClass;
+    let isString = (ct: ClassType) => stringClass != null && ct.symbolId == stringClass.symbolId;
+    let name = renderExternalName(parseExternalNameTemplate(raw), decl.name.name,
+        typeParameters, typeArgs, isString, "export");
+    let tw = exportTwOptions(decl);
+    wasm.exportMap[name as ExportKey] = if (tw != null) {
+      this.#twExportWrapper(func, funcType, node, model, name, tw)
+    } else {
+      func
+    };
+  }
+
   #twExportWrapper(func: WasmFunction, funcType: FunctionType, node: FunctionExpression,
       model: SemanticModel, name: String, throws: String): WasmFunction {
     let wasm = this.pass.wasm;

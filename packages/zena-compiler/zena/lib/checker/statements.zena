@@ -9,8 +9,8 @@ import {
   MemberExpression, MixinDeclaration, Node, NullLiteral, Pattern,
   ReturnStatement, ShieldedStatement, SourceLocation, Statement,
   SymbolDeclaration, ThisExpression, TuplePattern, TypeAliasDeclaration,
-  TypeAnnotation, UnaryExpression, UsingStatement, VariableDeclaration,
-  WhileStatement, YieldStatement, decoratorStringArg
+  TypeAnnotation, TypeParameter, UnaryExpression, UsingStatement, VariableDeclaration,
+  WhileStatement, YieldStatement, Decorator, decoratorStringArg
 } from '../ast.zena';
 import {
   ArrayType, ClassType, ErrorType, FieldInfo, FunctionType,
@@ -20,7 +20,7 @@ import {
   isSecondClass, scopedInner, typeCarriesOwner, typeToString, unwrapAliases
 } from '../types.zena';
 import { SemanticModel } from '../semantic-model.zena';
-import { twExportOptions } from '../external-name.zena';
+import { twExportOptions, parseExternalNameTemplate } from '../external-name.zena';
 import { DiagnosticCode } from '../diagnostics.zena';
 import { WellKnown } from '../well-known.zena';
 import { Symbol } from '../scope/symbol.zena';
@@ -105,6 +105,8 @@ export function checkStatement(ctx: CheckerContext, stmt: Statement): void {
         } else if (!exported) {
           ctx.error("'@export' names an exported function's Wasm export; add 'export'.",
               DiagnosticCode.TypeMismatch, dec.loc);
+        } else {
+          checkExportNameTemplate(ctx, exportName, namePat.name, func.typeParameters, dec);
         }
       }
       let info = ctx.model.resolveDeclaration(namePat);
@@ -1271,4 +1273,35 @@ function checkUsingStatement(
   // The rest of the enclosing block runs inside this binding's release
   // region; the enclosing block restores the depth on the way out.
   ctx.noteUsingBinding();
+}
+
+/**
+ * An `@export` name is templated as an `@external` name is: a generic
+ * function exports each instantiation under the name with `{T}` spelled
+ * at its type argument, so every placeholder must name one of the
+ * function's type parameters.
+ */
+function checkExportNameTemplate(ctx: CheckerContext, exportName: String, functionName: String,
+    typeParameters: Array<TypeParameter> | null, dec: Decorator): void {
+  let template = parseExternalNameTemplate(exportName);
+  let templateError = template.error;
+  if (templateError != null) {
+    ctx.error(`${templateError} in the @export name of '${functionName}'.`,
+        DiagnosticCode.TypeMismatch, dec.loc);
+    return;
+  }
+  for (let hole in template.holes) {
+    var known = false;
+    if (typeParameters != null) {
+      for (let tp in typeParameters) {
+        if (tp.name == hole) {
+          known = true;
+        }
+      }
+    }
+    if (!known) {
+      ctx.error(`'{${hole}}' in the @export name of '${functionName}' names no type parameter.`,
+          DiagnosticCode.TypeMismatch, dec.loc);
+    }
+  }
 }
