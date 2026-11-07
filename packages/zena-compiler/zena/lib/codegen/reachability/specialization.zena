@@ -16,6 +16,7 @@ import { Set } from 'zena:collections';
 import { getClassKey, getInterfaceKey, getInterfaceConstructorBaseName, getClassMethodKey, getClassInterfaceKey, getSignatureKey, matchOverload, collectMixinMembers, getMemberRootClass, getClassPrivateFieldKey, getSpecializedFunctionKey, getSpecializedName, isConcrete, MixinKey, containsErasedType, findMixinDeclaration } from '../codegen-utils.zena';
 import { typeToValType, mapReturnTypeToWasmResults, mapParamTypeToWasmParams, substituteTypeParamsInCodegen, substituteTypeParamsInClassContext, getClassTypeParameters, getInterfaceTypeParameters, interfaceMethodOverloads, getClosureStruct } from '../type-mapping.zena';
 import { growable } from 'zena:core';
+import { targetUsesJsStrings } from '../../targets.zena';
 import { ExternalImportSpec, externalImportSpec } from '../../external-name.zena';
 
 /**
@@ -282,6 +283,16 @@ export final class Specializer implements SpecializerInterface {
     }
     this.pass.instantiatedSpecializedClasses.add(cKey);
     cha.registerInstantiatedClass(classType);
+    // A JS-string String is built only through `#fromHandle`, which
+    // `String.fromHandle` calls: reaching that static from a value of
+    // the class, with no literal to queue the constructor, would leave
+    // the call without a target.
+    let sc = this.pass.wasm.stringClass;
+    if (sc != null && targetUsesJsStrings(this.pass.wasm.target) &&
+        (getClassKey(sc as ClassType) as String) == cKey) {
+      this.pass.notePendingMemberReach(
+          getClassMethodKey(getClassKey(classType), "<constructor>.#fromHandle"));
+    }
     // Values of this specialization exist, whoever first mentioned it:
     // list it, so a member reached on the generic later fans out over
     // it. Discovery passes over mentions made while laying out a class

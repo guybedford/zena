@@ -1,0 +1,18 @@
+/**
+ * A `-t js` program that reaches the String class without a string
+ * literal, here through `Some`, still has the `#fromHandle` constructor
+ * `String.fromHandle` calls.
+ */
+
+import { suite, test } from 'zena:test';
+import { equal } from 'zena:assert';
+import { compileFile } from '../lib/compile-file.zena';
+import { stdlibRoot } from './test-utils.zena';
+
+export let tests = suite('js strings without literals', () => {
+  test('String.fromHandle keeps its constructor', (ctx) => {
+    let entry = 'packages/zena-compiler/test-files/js-string-class-only.zena';
+    let outPath = 'packages/zena-compiler/zena/out/js-string-class-only.wasm';
+    equal(compileFile({entry, outPath, target: 'js', stdlibRoot}), 0);
+  });
+});

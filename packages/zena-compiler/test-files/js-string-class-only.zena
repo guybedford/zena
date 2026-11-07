@@ -1,0 +1,6 @@
+import { Some } from 'zena:core';
+
+export function main(x: i32): i32 {
+  let r = new Some<f64>(1.0);
+  return x;
+}
