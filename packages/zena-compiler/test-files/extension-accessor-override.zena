@@ -1,0 +1,47 @@
+// Fixture for tw-bindings_test.zena: a subclass redeclaring its
+// parent's accessor with a narrower type. Dispatch is static.
+
+@external("tw:js/global", "Options#get:onlyIf()", "tw")
+declare function optionsOnlyIf(o: externref): externref | null;
+
+@external("tw:js/global", "Options#set:onlyIf(externref | null)", "tw")
+declare function optionsSetOnlyIf(o: externref, v: externref | null): void;
+
+@external("tw:js/global", "BucketOptions#set:onlyIf(externref)", "tw")
+declare function bucketSetOnlyIf(o: externref, v: externref): void;
+
+@external("tw:js/global", "BucketOptions#get:onlyIf()", "tw")
+declare function bucketOnlyIf(o: externref): externref;
+
+export extension class Options on externref {
+  new wrap(value: externref) : super(value);
+  onlyIf: externref | null {
+    get {
+      return optionsOnlyIf(this as externref);
+    }
+    set(v) {
+      optionsSetOnlyIf(this as externref, v);
+    }
+  }
+}
+
+export extension class BucketOptions extends Options {
+  new wrap(value: externref) : super.wrap(value);
+  onlyIf: externref {
+    get {
+      return bucketOnlyIf(this as externref);
+    }
+    set(v) {
+      bucketSetOnlyIf(this as externref, v);
+    }
+  }
+}
+
+export function main(o: BucketOptions): i32 {
+  let a = o.onlyIf;
+  let p: Options = o;
+  let b = p.onlyIf;
+  o.onlyIf = a;
+  p.onlyIf = b;
+  return 0;
+}

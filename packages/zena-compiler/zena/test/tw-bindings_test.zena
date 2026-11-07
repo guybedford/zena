@@ -33,6 +33,14 @@ export let tests = suite('tw bindings', () => {
     compileWat('extension-declaration-order');
   });
 
+  test('a subclass redeclares its parent accessor', (ctx) => {
+    let wat = compileWat('extension-accessor-override');
+    isTrue(wat.contains('"BucketOptions#get:onlyIf()"'), 'the subclass getter');
+    isTrue(wat.contains('"Options#get:onlyIf()"'), 'the parent getter');
+    isTrue(wat.contains('"BucketOptions#set:onlyIf(externref)"'), 'the subclass setter');
+    isTrue(wat.contains('"Options#set:onlyIf(externref | null)"'), 'the parent setter');
+  });
+
   test('an imported global only unreached code names', (ctx) => {
     compileWat('unreached-imported-global');
   });

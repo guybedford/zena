@@ -8081,7 +8081,8 @@ export final class FunctionLowerer {
       }
       if (let (true, info) = this.wasm.classInfos.get(getClassKey(receiverCt))) {
         vtInfoOpt = info;
-        if (this.#cx().memberProvidedBySubclass(info, 'set#' + propName)) {
+        if (!receiverCt.isExtension &&
+            this.#cx().memberProvidedBySubclass(info, 'set#' + propName)) {
           // A subclass overrides the setter: the write must dispatch.
           if (this.#vtableSlotIndex(info, 'set#' + propName) < 0) {
             this.#bail('overridden setter without vtable slot');
@@ -9967,7 +9968,9 @@ export final class FunctionLowerer {
     if (getter.isStatic) {
       this.#bail('static member');
     }
-    if (!isPrivate && this.#cx().memberProvidedBySubclass(classInfo, 'get#' + propName)) {
+    // An extension class shadows rather than overrides, as for methods.
+    if (!isPrivate && !ct.isExtension &&
+        this.#cx().memberProvidedBySubclass(classInfo, 'get#' + propName)) {
       let target = new MemberTarget(structType, null, getter);
       if (this.#vtableSlotIndex(classInfo, 'get#' + propName) < 0) {
         this.#bail('overridden getter without vtable slot');
