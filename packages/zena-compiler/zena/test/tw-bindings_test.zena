@@ -92,7 +92,7 @@ export let tests = suite('tw bindings', () => {
       ('Map#put<bool>(V?)', '(param externref) (param i32)'),
       ('Map#put<i32>(V?)', '(param externref) (param i32) (param i32)'),
       ('id<f64?>(T)', '(param i32) (param f64) (result i32) (result f64)'),
-      ('resolve<void>', '(param externref)'),
+      ('resolve<unit>', '(param externref)'),
     ]) {
       isTrue(importsAt(wat, name, sig), `${name} imports as ${sig}`);
     }
