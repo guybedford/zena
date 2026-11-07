@@ -236,7 +236,7 @@ export final class TypeLowerer implements TypeLowererInterface {
           }
         }
         let isSpecialized = resolvedArgs.length > 0 && noOpenTypeParameters(resolvedArgs);
-        if (isSpecialized && this.pass.wasm.genericFunctions.has(targetSymId)) {
+        if (isSpecialized && this.pass.wasm.isGenericFunction(targetSymId)) {
           specializer.instantiateGenericFunction(targetSymId, resolvedArgs);
         }
         
@@ -3465,7 +3465,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
       }
     }
     let isSpecialized = resolvedArgs.length > 0 && noOpenTypeParameters(resolvedArgs);
-    if (isSpecialized && targetSymId != noSymbolId && this.pass.wasm.genericFunctions.has(targetSymId)) {
+    if (isSpecialized && targetSymId != noSymbolId && this.pass.wasm.isGenericFunction(targetSymId)) {
       this.pass.specializer.instantiateGenericFunction(targetSymId, resolvedArgs);
     }
     
@@ -3585,7 +3585,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
       }
     }
     let isSpecialized = resolvedArgs.length > 0 && noOpenTypeParameters(resolvedArgs);
-    if (isSpecialized && targetSymId != noSymbolId && this.pass.wasm.genericFunctions.has(targetSymId)) {
+    if (isSpecialized && targetSymId != noSymbolId && this.pass.wasm.isGenericFunction(targetSymId)) {
       this.pass.specializer.instantiateGenericFunction(targetSymId, resolvedArgs);
     }
     

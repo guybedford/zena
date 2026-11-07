@@ -1,0 +1,27 @@
+// Fixture for tw-bindings_test.zena: a generic @external called
+// from a generic extension class's constructor, method and static.
+
+@external("tw:js/global", "Map.new<{K},{V}>()", "tw")
+declare function mapNew<K, V>(): externref;
+
+@external("tw:js/global", "Map#get<{K},{V}>(K)", "tw")
+declare function mapGet<K, V>(m: externref, key: K): V;
+
+@external("tw:js/global", "Map.of<{T}>(T)", "tw")
+declare function mapOf<T>(value: T): externref;
+
+export extension class Map<K, V> on externref {
+  new() : super(mapNew<K, V>());
+  get(key: K): V {
+    return mapGet<K, V>(this as externref, key);
+  }
+  static of<T>(value: T): externref {
+    return mapOf<T>(value);
+  }
+}
+
+export function main(): f64 {
+  let m = new Map<String, f64>();
+  let o = Map.of<i32>(1);
+  return m.get('a');
+}

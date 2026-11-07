@@ -1,0 +1,31 @@
+/**
+ * Shapes ts-gen's Zena bindings rely on, each of which once failed to
+ * compile on `-t js`.
+ */
+
+import { suite, test } from 'zena:test';
+import { equal, isTrue } from 'zena:assert';
+import { readFileSync } from 'zena:fs';
+import { compileFile } from '../lib/compile-file.zena';
+import { stdlibRoot } from './test-utils.zena';
+
+/** Compiles a fixture in `test-files/` to WAT and returns the text. */
+function compileWat(name: String): String {
+  let entry = `packages/zena-compiler/test-files/${name}.zena`;
+  let outPath = `packages/zena-compiler/zena/out/${name}.wat`;
+  equal(compileFile({entry, outPath, target: 'js', stdlibRoot}), 0);
+  return readFileSync(outPath);
+}
+
+export let tests = suite('tw bindings', () => {
+  test('generic imports instantiate from generic extension members', (ctx) => {
+    let wat = compileWat('extension-generic-external');
+    for (let want in [
+      '"Map.new<str,f64>()"',
+      '"Map#get<str,f64>(K)"',
+      '"Map.of<i32>(T)"',
+    ]) {
+      isTrue(wat.contains(want), `missing ${want}`);
+    }
+  });
+});
