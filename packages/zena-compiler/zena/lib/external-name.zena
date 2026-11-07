@@ -416,7 +416,27 @@ export final class ExternalImportSpec {
    * crosses as its JS string handle (the IR's `str` on the host carrier).
    */
   isTw: boolean;
+  /**
+   * `throws:<key>`: the import throws the `tw` tag `key`, which its
+   * wrapper catches and throws as the tag's class.
+   */
+  var twThrows: String | null = null;
   new(this.module, this.name, this.isAsync, this.canonType, this.isTw);
+}
+
+/**
+ * The options of a `tw` export, `"tw"` or `"tw, throws:<key>"`: the
+ * thrown tag's key, empty for none, or null when they're neither.
+ */
+export function twExportOptions(raw: String): String | null {
+  if (raw == "tw") {
+    return "";
+  }
+  let prefix = "tw, throws:";
+  if (raw.startsWith(prefix) && raw.length > prefix.length) {
+    return raw.sliceBytes(prefix.length, raw.length);
+  }
+  return null;
 }
 
 /** The `@external` decorator of `decl`, or null when it has none. */
@@ -430,6 +450,7 @@ export function externalImportSpec(decl: DeclareFunction): ExternalImportSpec | 
     }
     var isAsync = false;
     var isTw = false;
+    var twThrows: String | null = null;
     var canonType = "";
     // A third argument is the import's canonical options, comma
     // separated. `async` is one; a WIT type spelling (`stream<u8>`,
@@ -464,6 +485,8 @@ export function externalImportSpec(decl: DeclareFunction): ExternalImportSpec | 
           isAsync = true;
         } else if (option == "tw") {
           isTw = true;
+        } else if (option.startsWith("throws:") && option.length > 7) {
+          twThrows = option.sliceBytes(7, option.length);
         } else if (option.startsWith("stream") ||
             option.startsWith("future") ||
             option.startsWith("resource:") ||
@@ -479,8 +502,10 @@ export function externalImportSpec(decl: DeclareFunction): ExternalImportSpec | 
         }
       }
     }
-    return new ExternalImportSpec(decoratorStringArg(dec, 0) ?? "",
+    let spec = new ExternalImportSpec(decoratorStringArg(dec, 0) ?? "",
         decoratorStringArg(dec, 1) ?? "", isAsync, canonType, isTw);
+    spec.twThrows = if (isTw) twThrows else null;
+    return spec;
   }
   return null;
 }

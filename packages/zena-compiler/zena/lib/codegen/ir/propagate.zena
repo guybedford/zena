@@ -632,6 +632,10 @@ final class Propagation {
         return;
       }
       let gl = (r as IrRefGlobal).target;
+      if (gl.hostWritten) {
+        this.g.setTop(v);
+        return;
+      }
       if (gl.initVTable != null) {
         this.g.add(v, this.globalAtom(gl));
       }

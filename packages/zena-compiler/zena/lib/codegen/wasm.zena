@@ -106,6 +106,10 @@ export sealed class ImportDesc implements Hashable {
         case MemoryImport {minPages as otherPages}: minPages == otherPages
         case _: false
       }
+      case TagImport {typeIndex}: match (other) {
+        case TagImport {typeIndex as otherIndex}: typeIndex == otherIndex
+        case _: false
+      }
     };
   }
 
@@ -115,12 +119,14 @@ export sealed class ImportDesc implements Hashable {
       case GlobalImport {type, isMutable}:
           (valTypeToOpcode(type) * 31 + refTargetIndex(type)) * 31 + (if (isMutable) 3 else 2)
       case MemoryImport {minPages}: minPages * 31 + 4
+      case TagImport {typeIndex}: typeIndex * 31 + 5
     };
   }
 
   case FuncImport(typeIndex: i32)
   case GlobalImport(type: ValType, isMutable: boolean)
   case MemoryImport(minPages: i32)
+  case TagImport(typeIndex: i32)
 }
 
 /** Whether `emitValType` writes the same bytes for both: one opcode, and one heap type for a ref. */

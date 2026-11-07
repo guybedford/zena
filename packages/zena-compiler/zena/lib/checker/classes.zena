@@ -660,18 +660,30 @@ export function registerClassDeclaration(ctx: CheckerContext, cd: ClassDeclarati
   classType.declaredFields = null;
   classType.sealedVariants = null;
   classType.irSpelling = null;
+  classType.twTag = null;
   for (let dec in cd.decorators) {
     let spelling = if (dec.name == "spelling" && dec.args.length == 1) {
       decoratorStringArg(dec, 0)
     } else {
       null
     };
+    let tag = if (dec.name == "external" && dec.args.length == 3 &&
+        decoratorStringArg(dec, 0) == "tw:tag" && decoratorStringArg(dec, 2) == "tw") {
+      decoratorStringArg(dec, 1)
+    } else {
+      null
+    };
     if (spelling != null && spelling.length > 0) {
       classType.irSpelling = spelling;
+    } else if (tag != null && tag.length > 0) {
+      classType.twTag = tag;
+      ctx.model.twTags[tag] = classType;
     } else {
       ctx.error(
         "A class takes only '@spelling(\"<ts-gen IR name>\")', which names " +
-        "the class in templated @external names.",
+        "the class in templated @external names, or " +
+        "'@external(\"tw:tag\", \"<key>\", \"tw\")', which makes it the " +
+        "error a tw bridge throws as that tag.",
         DiagnosticCode.TypeMismatch,
         dec.loc
       );

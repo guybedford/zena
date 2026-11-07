@@ -18,7 +18,7 @@ import {
   Node, decoratorStringArg, AsExpression, IsExpression, MatchExpression, RecordLiteral, ClassPattern, MatchCase, LetPatternCondition, AsPattern, BindingPattern, LogicalPattern, TuplePattern, ArrayPattern, RestPattern, RecordPattern, AccessorDeclaration, BinaryExpression, LiteralPattern, NewExpression, MethodDefinition, SymbolPropertyName, RangeExpression, ArrayLiteral, MapLiteral, TupleLiteral, Expression, TemplateElement, TaggedTemplateExpression, ForInStatement, MemberExpression, AwaitExpression, IndexExpression, AssignmentExpression, Identifier, CallExpression, VariableDeclaration, FunctionDeclaration, Pattern, ImportDeclaration, DeclareFunction, ImportSpecifier, IdentifierPattern, FunctionExpression, MixinDeclaration, ClassDeclaration, Module, NumberLiteral, ThrowExpression, TryExpression, ContractClause, contractFailureMessage, ShieldedStatement, StringLiteral, SuperInitializer, TemplateLiteral, UnaryExpression,
 } from '../../ast.zena';
 import {
-  WasmStruct, WasmField, WasmGlobal, WasmFunction, RecordDispatchInfo, TypeTestSite,
+  WasmStruct, WasmField, WasmGlobal, WasmFunction, WasmTag, RecordDispatchInfo, TypeTestSite,
   isRefTo, TwOption, TwOptionKind,
 } from '../wasm-module.zena';
 import {
@@ -40,7 +40,7 @@ import { WellKnown, isWellKnown } from '../../well-known.zena';
 import { stdlibLibraryOf, stdlibLibraryAnswers } from '../../stdlib-manifest.zena';
 import { growable } from 'zena:core';
 import { targetUsesJsStrings } from '../../targets.zena';
-import { ExternalImportSpec, externalImportSpec, literalExternalName } from '../../external-name.zena';
+import { ExternalImportSpec, externalImportSpec, literalExternalName, twExportOptions } from '../../external-name.zena';
 
 /**
  * TypeLowerer translates Zena semantic types into their target WebAssembly representation,
@@ -3683,7 +3683,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
     }
     this.#discoverFunctionBinding(
         funcDecl.name as Pattern, funcDecl.func, funcDecl.exported, moduleModel,
-        exportNameOf(funcDecl), exportIsTw(funcDecl));
+        exportNameOf(funcDecl), exportTwOptions(funcDecl));
   }
 
   discoverVariableDeclaration(symId: SymbolId, varDecl: VariableDeclaration, moduleModel: SemanticModel): void {
@@ -3742,7 +3742,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
 
   /** Shared by `let f = () => ...` and `function f() { ... }`. */
   #discoverFunctionBinding(pattern: Pattern, funcExpr: FunctionExpression, exported: boolean, moduleModel: SemanticModel,
-      exportAs: String | null = null, exportTw: boolean = false): void {
+      exportAs: String | null = null, exportTw: String | null = null): void {
     let funcTypeNode = moduleModel.getNodeType(funcExpr);
     var isGeneric = false;
     if (funcTypeNode is FunctionType) {
@@ -3828,8 +3828,9 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
             } else {
               pattern.name
             };
-            let exported = if (exportTw && funcTypeNode is FunctionType) {
-              this.#twExportWrapper(wasmFunc, funcTypeNode, funcExpr, moduleModel, exportName as String)
+            let exported = if (exportTw != null && funcTypeNode is FunctionType) {
+              this.#twExportWrapper(wasmFunc, funcTypeNode, funcExpr, moduleModel,
+                  exportName as String, exportTw)
             } else {
               wasmFunc
             };
@@ -4173,6 +4174,11 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
         rawReturns.push(vt);
       }
     }
+    let throwsKey = spec.twThrows;
+    let tag = if (throwsKey != null) this.#twTag(throwsKey, decl.name.name) else null;
+    if (tag != null) {
+      converts = true;
+    }
     let importFunc = new WasmFunction(wasm.getSignature(rawParams, rawReturns), decl, model);
     importFunc.isImport = true;
     importFunc.importModule = spec.module;
@@ -4193,8 +4199,80 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
     wrapperFunc.importWrapperTw = true;
     wrapperFunc.twParamOptions = paramOptions;
     wrapperFunc.twResultOption = resultOption;
+    wrapperFunc.twThrows = tag;
     wasm.addFunction(wrapperFunc);
     return wrapperFunc;
+  }
+
+  /**
+   * The `tw` tag `key`, imported as `("tw:tag", key)`, its values its
+   * class's constructor parameters (`String`s as JS string handles). The
+   * class and its constructor are reached, since a catch builds one, and
+   * so is the exception machinery a wrapper throws it through.
+   */
+  #twTag(key: String, what: String): WasmTag {
+    let wasm = this.pass.wasm;
+    if (let (true, t) = wasm.twTags.get(key)) {
+      return t;
+    }
+    var found: ClassType | null = null;
+    for (let unit in this.pass.program.units) {
+      if (let (true, c) = unit.model.twTags.get(key)) {
+        found = c;
+      }
+    }
+    if (found == null) {
+      throw new Error(`'${what}' throws the tw tag '${key}', which no class ` +
+          `declares with @external("tw:tag", "${key}", "tw")`);
+    }
+    let ct = found as ClassType;
+    let model = this.pass.getClassModel(ct);
+    this.pass.noteExceptionInfra(model);
+    this.pass.specializer.instantiateClassType(ct, model);
+    this.queueExplicitCtor(ct, "<constructor>");
+    let ctorType = ct.constructorType;
+    if (ctorType == null) {
+      throw new Error(`The tw tag class '${ct.name}' has no constructor`);
+    }
+    let sc = wasm.stringClass as ClassType;
+    this.pass.specializer.instantiateClassType(sc, this.pass.getClassModel(sc));
+    this.queueExplicitCtor(sc, "<constructor>.#fromHandle");
+    let st = wasm.twStringStruct();
+    let params = new Array<ValType>();
+    for (let p in (ctorType as FunctionType).parameters) {
+      let vts = new Array<ValType>();
+      mapParamTypeToWasmParams(wasm, p, vts);
+      for (let vt in vts) {
+        if (st != null && isRefTo(vt, st as WasmStruct)) {
+          params.push(new ValTypeExternRef());
+        } else {
+          params.push(vt);
+        }
+      }
+    }
+    let tag = new WasmTag(wasm.getSignature(params, new Array<ValType>()));
+    tag.importModule = "tw:tag";
+    tag.importName = key;
+    tag.twClass = ct;
+    let info = (ctorType as FunctionType).info;
+    let names = if (info != null) info.parameterNames else null;
+    if (names == null) {
+      throw new Error(`The tw tag class '${ct.name}' has no constructor parameter names`);
+    }
+    tag.twFields = names;
+    tag.catchSignature = wasm.getSignature(new Array<ValType>(), params);
+    let globals = new Array<WasmGlobal>();
+    for (var i = 0; i < params.length; i += 1) {
+      let name = `__tw_tag_${key}_${i32ToString(i)}`;
+      let g = new WasmGlobal(name, name, params[i], true, null, null, model);
+      g.hostWritten = true;
+      wasm.globals.push(g);
+      globals.push(g);
+    }
+    tag.payloadGlobals = globals;
+    wasm.tagImports.push(tag);
+    wasm.twTags[key] = tag;
+    return tag;
   }
 
   /**
@@ -4203,8 +4281,9 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
    * `Option<T>` as the IR's `T?`, and returning them so.
    */
   #twExportWrapper(func: WasmFunction, funcType: FunctionType, node: FunctionExpression,
-      model: SemanticModel, name: String): WasmFunction {
+      model: SemanticModel, name: String, throws: String): WasmFunction {
     let wasm = this.pass.wasm;
+    let tag = if (throws.length > 0) this.#twTag(throws, name) else null;
     let st = wasm.twStringStruct();
     let params = func.signature.params;
     let returns = func.signature.returns;
@@ -4254,7 +4333,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
         }
       }
     }
-    if (!converts) {
+    if (!converts && tag == null) {
       return func;
     }
     if (usesString) {
@@ -4263,6 +4342,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
       this.queueExplicitCtor(sc, "<constructor>.#fromHandle");
     }
     let wrapper = new WasmFunction(wasm.getSignature(rawParams, rawReturns), node, model);
+    wrapper.twThrows = tag;
     wrapper.name = `${func.name ?? "export"}$tw`;
     wrapper.importWrapperTarget = func;
     wrapper.importWrapperTw = true;
@@ -4383,15 +4463,17 @@ export function exportNameOf(decl: FunctionDeclaration): String | null {
 
 /**
  * `@export(name, "tw")`: the caller is a ts-gen `tw` bridge, so values
- * cross as they do a `tw` import's (external-name.zena).
+ * cross as they do a `tw` import's (external-name.zena). The tag key of
+ * `"tw, throws:<key>"`, empty for plain `"tw"`, or null when not `tw`.
  */
-function exportIsTw(decl: FunctionDeclaration): boolean {
+function exportTwOptions(decl: FunctionDeclaration): String | null {
   for (let dec in decl.decorators) {
     if (dec.name == "export" && dec.args.length == 2) {
-      return decoratorStringArg(dec, 1) == "tw";
+      let raw = decoratorStringArg(dec, 1);
+      return if (raw != null) twExportOptions(raw) else null;
     }
   }
-  return false;
+  return null;
 }
 
 function noOpenTypeParameters(args: Array<Type>): boolean {

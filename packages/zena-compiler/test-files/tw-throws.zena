@@ -1,0 +1,35 @@
+// Fixture for tw-bindings_test.zena: the tw tag `err`. A throwing
+// import's wrapper catches it as `Err`, and a throwing export's throws
+// an escaping `Err` as it.
+
+@external("tw:tag", "err", "tw")
+export class Err extends Error {
+  arm: i32;
+  new(arm: i32, message: String) : arm = arm, super(message) {}
+}
+
+@external("tw:js/global", "parse(str)", "tw, throws:err")
+declare function parse(text: String): f64;
+
+@export("tryParse", "tw")
+export function tryParse(text: String): String {
+  return try {
+    parse(text);
+    "parsed"
+  } catch (e) {
+    if (e is Err) `caught ${e.message}` else "other"
+  };
+}
+
+@export("mustParse", "tw, throws:err")
+export function mustParse(text: String): f64 {
+  return parse(text);
+}
+
+@export("fail", "tw, throws:err")
+export function fail(arm: i32): void {
+  if (arm == 0) {
+    throw new Error("plain");
+  }
+  throw new Err(arm, "bad");
+}

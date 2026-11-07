@@ -1382,6 +1382,12 @@ export final class ClassType extends Type {
    * `@external` name spells it as in place of its Zena name.
    */
   var irSpelling: String | null = null;
+  /**
+   * `@external("tw:tag", "<key>", "tw")`: the class is an error a ts-gen
+   * `tw` bridge throws and catches as the tag `("tw:tag", key)`, whose
+   * values are its constructor's parameters.
+   */
+  var twTag: String | null = null;
   var declaredFields: HashSet<String> | null = null;
   var sealedVariants: GrowableArray<ClassType> | null = null;
   var forwardVariantNames: HashSet<String> | null = null;

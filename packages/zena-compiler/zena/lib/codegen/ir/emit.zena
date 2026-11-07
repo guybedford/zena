@@ -1715,9 +1715,16 @@ export final class ZirFunctionEmitter {
       // block $catch { try_table (catch tag -> $catch) { body } }
       // catch-path...   Exits from the body br straight to their
       // targets (out through the try_table); nothing falls out of it,
-      // so the code after the inner `end` never runs.
+      // so the code after the inner `end` never runs. A tag with values
+      // leaves them in its payload globals, read by the catch path.
+      let tag = ref.target;
+      let payload = tag.payloadGlobals;
       this.#scopeOpened();
-      this.emitter.emitBlock(new ValTypeVoid());
+      if (payload != null && payload.length > 0) {
+        this.emitter.emitBlockType((tag.catchSignature as WasmSignature).index);
+      } else {
+        this.emitter.emitBlock(new ValTypeVoid());
+      }
       this.#prologue = false;
       this.frames.push(new EmitFrame(-1, false));
       this.#scopeOpened();
@@ -1729,9 +1736,17 @@ export final class ZirFunctionEmitter {
       this.#scopeClosed();
       this.emitter.emitEnd();
       this.frames.pop();
+      if (payload != null && payload.length > 0) {
+        this.emitter.emitUnreachable();
+      }
       this.#scopeClosed();
       this.emitter.emitEnd();
       this.frames.pop();
+      if (payload != null) {
+        for (var k = payload.length - 1; k >= 0; k -= 1) {
+          this.emitter.emitGlobalSet(payload[k].index);
+        }
+      }
       this.#doBranch(from, succs[1]);
       if (hoistJoin) {
         this.#flushPendingReturn();

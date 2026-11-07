@@ -1,6 +1,6 @@
 import { ValType, ImportDesc } from "./wasm.zena";
 
-import { WasmFunction, WasmGlobal } from './wasm-module.zena';
+import { WasmFunction, WasmGlobal, WasmTag } from './wasm-module.zena';
 import { ByteBuffer } from 'zena:core';
 
 /**
@@ -9,7 +9,7 @@ import { ByteBuffer } from 'zena:core';
  * moves it. The memory import binds neither.
  */
 export final class ImportItem(module: String, name: String, desc: ImportDesc,
-    target: WasmFunction | WasmGlobal | null)
+    target: WasmFunction | WasmGlobal | WasmTag | null)
 
 export interface WasmEmitter {
   emitModuleStart(): void;
@@ -84,6 +84,8 @@ export interface WasmEmitter {
   // Control flow
   emitUnreachable(): void;
   emitBlock(resultType: ValType): void;
+  /** A block whose type is the function type `typeIndex`. */
+  emitBlockType(typeIndex: i32): void;
   emitLoop(resultType: ValType): void;
   emitIf(resultType: ValType): void;
   emitElse(): void;

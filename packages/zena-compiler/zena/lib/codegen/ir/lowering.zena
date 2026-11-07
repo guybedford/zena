@@ -41,7 +41,7 @@ import { ValType, ValTypeVoid, ValTypeI32, ValTypeI64, ValTypeF32, ValTypeF64, V
 import { targetUsesJsStrings } from '../../targets.zena';
 import {
   WasmModule, WasmFunction, WasmStruct, WasmField, WasmGlobal, WasmSignature, ClassCodegenInfo, isValSubtype, sortWasmFields, RecordDispatchInfo, asWasmStruct, asWasmSignature, asWasmArray, valTypeIdentical, ClosureForwarderSpec, ExplosionSpec, AdaptationPack,
-  noCaptures, TwOption, TwOptionKind,
+  noCaptures, TwOption, TwOptionKind, WasmTag,
 } from '../wasm-module.zena';
 import {
   typeToValType, typeToValTypeWithSub, eraseTypeParameters, substituteTypeParamsInClassContext, substituteTypeParamsInFunctionContext, InlineLayout, inlineLayoutOf, inlineParamLayoutOf, inlineRecordParamOf, inlineRecordResultOf, getInterfaceTypeParameters, substituteTypeParamsInCodegen, nestedInlineTuple, nestedInlineRecord, flattenInlineTuple, recordFieldsTuple, recordFieldNames, inlineRecordFieldsLayout, boxedRecordWithFields, boxedFieldType, pathIndex, getClosureStruct, getClosureKey, getNonNullableType, recordWasmFields, sortedOptionalNames, interfaceCallSlotName,
@@ -254,6 +254,15 @@ function lowerTwImportWrapper(wasm: WasmModule, func: WasmFunction) {
     }
     at += 1;
   }
+  let tag = func.twThrows;
+  if (tag != null) {
+    let bodyB = b.newBlock();
+    let catchB = b.newBlock();
+    b.tryBr(b.addRef(new IrRefTag(tag)), bodyB, new Array<i32>(), catchB, new Array<i32>());
+    b.switchTo(catchB);
+    twThrowTagClass(wasm, b, tag);
+    b.switchTo(bodyB);
+  }
   let funcRef = b.addRef(new IrRefFunc(target));
   let wants = func.signature.returns;
   if (wants.length == 0) {
@@ -331,6 +340,17 @@ function lowerTwExportWrapper(wasm: WasmModule, func: WasmFunction) {
     }
     at += 1;
   }
+  let tag = func.twThrows;
+  if (tag != null) {
+    wasm.ensureExceptionInfra(func.model);
+    let bodyB = b.newBlock();
+    let catchB = b.newBlock();
+    let zenaTag = b.addRef(new IrRefTag(wasm.exceptionTag as WasmTag));
+    b.tryBr(zenaTag, bodyB, new Array<i32>(), catchB, new Array<i32>());
+    b.switchTo(catchB);
+    twThrowTag(wasm, b, tag);
+    b.switchTo(bodyB);
+  }
   let funcRef = b.addRef(new IrRefFunc(target));
   let returns = target.signature.returns;
   if (returns.length == 0) {
@@ -365,6 +385,80 @@ function lowerTwExportWrapper(wasm: WasmModule, func: WasmFunction) {
     b.retMulti(out);
   }
   return b.finish();
+}
+
+/**
+ * A caught `tw` tag's values, from its payload globals, as an instance of
+ * its class, thrown as a Zena exception.
+ */
+function twThrowTagClass(wasm: WasmModule, b: IrBuilder, tag: WasmTag) {
+  let ct = tag.twClass as ClassType;
+  let ctor = twCtor(wasm, ct);
+  let globals = tag.payloadGlobals as GrowableArray<WasmGlobal>;
+  let args = new Array<i32>();
+  for (var i = 0; i < globals.length; i += 1) {
+    let g = globals[i];
+    let v = b.emit(IrOp.global_get, g.type, -1, b.addRef(new IrRefGlobal(g)));
+    let want = ctor.signature.params[i];
+    if (asWasmStruct(want) != null && g.type is ValTypeExternRef) {
+      args.push(twStringFromHandle(wasm, b, want, v));
+    } else {
+      args.push(v);
+    }
+  }
+  let made = b.callFunc(b.addRef(new IrRefFunc(ctor)), args, ctor.signature.returns[0]);
+  let payload = wasm.exceptionPayload as WasmGlobal;
+  b.emitVoid(IrOp.global_set, made, b.addRef(new IrRefGlobal(payload)));
+  b.throwWithTag(new Array<i32>(), b.addRef(new IrRefTag(wasm.exceptionTag as WasmTag)));
+}
+
+/**
+ * A caught Zena exception leaving a `tw` export: an instance of the tag's
+ * class leaves as the tag, its values read from the fields its
+ * constructor's parameters name; anything else is rethrown.
+ */
+function twThrowTag(wasm: WasmModule, b: IrBuilder, tag: WasmTag) {
+  let ct = tag.twClass as ClassType;
+  let st = twStructOf(wasm, ct);
+  let payload = wasm.exceptionPayload as WasmGlobal;
+  let i32vt = new ValTypeI32() as ValType;
+  let refVt = new ValTypeRef(st) as ValType;
+  let e = b.emit(IrOp.global_get, payload.type, -1, b.addRef(new IrRefGlobal(payload)));
+  let mineB = b.newBlock();
+  let otherB = b.newBlock();
+  let test = b.emit(IrOp.ref_test, i32vt, e, b.internType(refVt));
+  b.brIf(test, mineB, new Array<i32>(), otherB, new Array<i32>());
+
+  b.switchTo(otherB);
+  b.throwWithTag(new Array<i32>(), b.addRef(new IrRefTag(wasm.exceptionTag as WasmTag)));
+
+  b.switchTo(mineB);
+  let cast = b.emit(IrOp.ref_cast, refVt, e, b.internType(refVt));
+  let values = new Array<i32>();
+  let params = tag.signature.params;
+  let names = tag.twFields as GrowableArray<String>;
+  for (var i = 0; i < names.length; i += 1) {
+    let field = twField(st, names[i]);
+    var v = b.emit(IrOp.struct_get, field.type, cast,
+        b.addRef(new IrRefField(st, field.name as String)));
+    let fst = asWasmStruct(field.type);
+    if (fst != null && params[i] is ValTypeExternRef) {
+      v = twStringHandle(b, fst as WasmStruct, v);
+    }
+    values.push(v);
+  }
+  b.throwWithTag(values, b.addRef(new IrRefTag(tag)));
+}
+
+/** The field of `st` named `name`, which a subclass's struct qualifies. */
+function twField(st: WasmStruct, name: String): WasmField {
+  for (let f in st.fields) {
+    let n = f.name;
+    if (n != null && ((n as String) == name || (n as String).endsWith(`::${name}`))) {
+      return f;
+    }
+  }
+  throw new ZirUnsupported(`tw tag: no field '${name}' to throw it from`);
 }
 
 function twCtor(wasm: WasmModule, ct: ClassType): WasmFunction {

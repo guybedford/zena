@@ -82,6 +82,14 @@ export let tests = suite('tw bindings', () => {
     }
   });
 
+  test('a tw tag is imported for its throwing import and exports', (ctx) => {
+    let wat = compileWat('tw-throws');
+    isTrue(wat.contains('"tw:tag"'), 'imports from tw:tag');
+    isTrue(wat.contains('"err"'), 'imports the tag err');
+    isTrue(wat.contains('(tag (type'), 'imports a tag');
+    isTrue(wat.contains('block (type'), 'catches the tag with its values');
+  });
+
   test('an imported global only unreached code names', (ctx) => {
     compileWat('unreached-imported-global');
   });

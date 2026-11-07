@@ -1,7 +1,7 @@
 import { ValTypeVoid, ValTypeFunc, ValTypeStructRef, ValTypeNullRef, ValTypeI32, ValTypeF32, ValTypeF64, ValTypeI64, ValTypeI8, ValTypeI16, ValTypeV128, ValTypeOptRef, ValTypeAnyRef, ValTypeFuncRef, ValTypeExternRef, ValTypeRefExtern, ValTypeEqRef, ValTypeRef, ValTypeRefNull } from './wasm.zena';
 import { StringBuilder, ByteBuffer } from 'zena:core';
 import { WasmEmitter, ImportItem } from './wasm-emitter.zena';
-import { ValType, ImportDesc, FuncImport, GlobalImport, MemoryImport } from "./wasm.zena";
+import { ValType, ImportDesc, FuncImport, GlobalImport, MemoryImport, TagImport } from "./wasm.zena";
 import { WasmFunction } from "./wasm-module.zena";
 import { simdName } from '../simd.zena';
 import { wideArithName } from './wasm.zena';
@@ -192,6 +192,9 @@ export final class WatEmitter implements WasmEmitter {
       case MemoryImport {minPages}: {
         this.sb.append('(memory ').append(i32ToString(minPages)).append(')');
       }
+      case TagImport {typeIndex}: {
+        this.sb.append('(tag (type ').append(i32ToString(typeIndex)).append('))');
+      }
     }
   }
   emitImportSectionEnd(): void {}
@@ -376,6 +379,12 @@ export final class WatEmitter implements WasmEmitter {
     this.indentDepth += 1;
   }
   
+  emitBlockType(typeIndex: i32): void {
+    this.indent();
+    this.sb.append('block (type ').append(i32ToString(typeIndex)).append(')\n');
+    this.indentDepth += 1;
+  }
+
   emitLoop(resultType: ValType): void {
     this.indent();
     if (resultType is ValTypeVoid ) {

@@ -6,7 +6,7 @@ import {
 } from './wasm-module.zena';
 import {
   SectionId, ValType, Opcode, SatOpcode, GcOpcode, HeapType, valTypeToOpcode, heapTypeToSigned,
-  ImportDesc, FuncImport, GlobalImport, MemoryImport,
+  ImportDesc, FuncImport, GlobalImport, MemoryImport, TagImport,
 } from './wasm.zena';
 
 export function emitValType(buffer: ByteBuffer, type: ValType) {
@@ -141,6 +141,11 @@ export function writeImportDesc(buffer: ByteBuffer, desc: ImportDesc) {
       buffer.writeByte(0x02);
       buffer.writeByte(0x00); // limits: min only
       buffer.writeULEB128(minPages);
+    }
+    case TagImport {typeIndex}: {
+      buffer.writeByte(0x04);
+      buffer.writeByte(0x00); // attribute: exception
+      buffer.writeULEB128(typeIndex);
     }
   }
 }
@@ -620,6 +625,12 @@ export final class BinaryEmitter implements WasmEmitter {
     let b = this.currentBuffer as ByteBuffer;
     b.writeByte(Opcode.block as i32);
     emitValType(b, resultType);
+  }
+
+  emitBlockType(typeIndex: i32): void {
+    let b = this.currentBuffer as ByteBuffer;
+    b.writeByte(Opcode.block as i32);
+    b.writeSLEB128(typeIndex);
   }
 
   emitLoop(resultType: ValType): void {

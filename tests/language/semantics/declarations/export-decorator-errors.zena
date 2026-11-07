@@ -1,19 +1,19 @@
 // @mode: check
 // `@export` names an exported function's Wasm export, and is a function's
-// only decorator. A class takes only `@spelling`.
+// only decorator. A class takes only `@spelling` or a tw tag's `@external`.
 @export("f()") // @error: '@export' names an exported function's Wasm export; add 'export'.
 function f(): i32 { return 1; }
 
-@export() // @error: A function takes only '@export("<name>")' or '@export("<name>", "tw")', its Wasm export name.
+@export() // @error: A function takes only '@export("<name>")', or '@export("<name>", "tw")' or '@export("<name>", "tw, throws:<key>")', its Wasm export name.
 export function g(): i32 { return 1; }
 
-@pure // @error: A function takes only '@export("<name>")' or '@export("<name>", "tw")', its Wasm export name.
+@pure // @error: A function takes only '@export("<name>")', or '@export("<name>", "tw")' or '@export("<name>", "tw, throws:<key>")', its Wasm export name.
 export function h(): i32 { return 1; }
 
-@export("C") // @error: A class takes only '@spelling("<ts-gen IR name>")', which names the class in templated @external names.
+@export("C") // @error: A class takes only '@spelling("<ts-gen IR name>")', which names the class in templated @external names, or '@external("tw:tag", "<key>", "tw")', which makes it the error a tw bridge throws as that tag.
 export extension class C on externref {}
 
-@export("i()", "js") // @error: A function takes only '@export("<name>")' or '@export("<name>", "tw")', its Wasm export name.
+@export("i()", "js") // @error: A function takes only '@export("<name>")', or '@export("<name>", "tw")' or '@export("<name>", "tw, throws:<key>")', its Wasm export name.
 export function i(): i32 { return 1; }
 
 @export("j()", "tw")

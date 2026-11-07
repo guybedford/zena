@@ -78,6 +78,13 @@ export function pruneTypes(wasm: WasmModule, bodies: GrowableArray<IrBody>): i32
   for (let tag in wasm.tags) {
     mark(tag.signature);
   }
+  for (let tag in wasm.tagImports) {
+    mark(tag.signature);
+    let catchSig = tag.catchSignature;
+    if (catchSig != null) {
+      mark(catchSig);
+    }
+  }
   for (let g in wasm.globals) {
     markVal(g.type);
     let init = g.initVTable;

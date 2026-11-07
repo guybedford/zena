@@ -7,7 +7,7 @@ import {
 } from './wasm.zena';
 import { simdInstruction } from '../simd.zena';
 import {
-  WasmModule, WasmFunction, WasmSignature, WasmExport, WasmGlobal, WasmStruct, VTableInit, WasmArray, StringLiteralLocation,
+  WasmModule, WasmFunction, WasmSignature, WasmExport, WasmGlobal, WasmStruct, VTableInit, WasmArray, StringLiteralLocation, WasmTag,
 } from './wasm-module.zena';
 import { ByteBuffer, growable } from 'zena:core';
 import { ReachabilityAnalysis } from './reachability/analysis.zena';
@@ -29,7 +29,7 @@ import {
 import { isWebUiProtocolLibrary } from '../stdlib-manifest.zena';
 import { Symbol } from '../scope/symbol.zena';
 import {
-  ValType, resetWasmTypeUids, FuncImport, GlobalImport, MemoryImport,
+  ValType, resetWasmTypeUids, FuncImport, GlobalImport, MemoryImport, TagImport,
 } from './wasm.zena';
 import {
   SingleImport, ImportGroup, ImportTypeGroup, planImports,
@@ -1147,6 +1147,10 @@ export final class ModuleGenerator {
       imports.push(new ImportItem(g.importModule as String, g.importName as String,
           new GlobalImport(g.type, g.isMutable), g));
     }
+    for (let t in wasm.tagImports) {
+      imports.push(new ImportItem(t.importModule as String, t.importName as String,
+          new TagImport(t.signature.index), t));
+    }
     if (memoryImported) {
       imports.push(new ImportItem(componentRuntimeNamespace, componentMemoryExport,
           new MemoryImport(1), null));
@@ -1158,10 +1162,12 @@ export final class ModuleGenerator {
       // index order.
       let funcs = new Array<WasmFunction>();
       let globals = new Array<WasmGlobal>();
+      let tags = new Array<WasmTag>();
       let take = (item: ImportItem) => {
         match (item.target) {
           case WasmFunction as f: { funcs.push(f); }
           case WasmGlobal as g: { globals.push(g); }
+          case WasmTag as t: { tags.push(t); }
           case null: {}
         }
       };
@@ -1173,6 +1179,11 @@ export final class ModuleGenerator {
         }
       }
       wasm.reorderImports(funcs, globals);
+      // Imported tags number first, in import order.
+      for (var i = 0; i < tags.length; i += 1) {
+        wasm.tagImports[i] = tags[i];
+        tags[i].index = i;
+      }
     }
 
     this.emitter.emitImportSectionStart(importEntries.length);

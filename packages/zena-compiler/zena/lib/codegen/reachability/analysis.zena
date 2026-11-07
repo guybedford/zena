@@ -2166,6 +2166,13 @@ export final class ReachabilityAnalysis implements ReachabilityContext {
     for (let t in this.wasm.tags) {
       this.markTypeReached(t.signature);
     }
+    for (let t in this.wasm.tagImports) {
+      this.markTypeReached(t.signature);
+      let catchSig = t.catchSignature;
+      if (catchSig != null) {
+        this.markTypeReached(catchSig);
+      }
+    }
     for (let f in this.wasm.functionImports) {
       this.markTypeReached(f.signature);
     }

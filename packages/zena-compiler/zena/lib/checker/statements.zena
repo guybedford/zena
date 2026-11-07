@@ -20,6 +20,7 @@ import {
   isSecondClass, scopedInner, typeCarriesOwner, typeToString, unwrapAliases
 } from '../types.zena';
 import { SemanticModel } from '../semantic-model.zena';
+import { twExportOptions } from '../external-name.zena';
 import { DiagnosticCode } from '../diagnostics.zena';
 import { WellKnown } from '../well-known.zena';
 import { Symbol } from '../scope/symbol.zena';
@@ -93,13 +94,13 @@ export function checkStatement(ctx: CheckerContext, stmt: Statement): void {
       for (let dec in decorators) {
         let twOption = if (dec.args.length == 2) decoratorStringArg(dec, 1) else "tw";
         let exportName = if (dec.name == "export" && (dec.args.length == 1 || dec.args.length == 2) &&
-            twOption == "tw") {
+            twOption != null && twExportOptions(twOption) != null) {
           decoratorStringArg(dec, 0)
         } else {
           null
         };
         if (exportName == null || exportName.length == 0) {
-          ctx.error("A function takes only '@export(\"<name>\")' or '@export(\"<name>\", \"tw\")', its Wasm export name.",
+          ctx.error("A function takes only '@export(\"<name>\")', or '@export(\"<name>\", \"tw\")' or '@export(\"<name>\", \"tw, throws:<key>\")', its Wasm export name.",
               DiagnosticCode.TypeMismatch, dec.loc);
         } else if (!exported) {
           ctx.error("'@export' names an exported function's Wasm export; add 'export'.",

@@ -5575,6 +5575,32 @@ values cross the import, as a parameter or the result or an element or
 an extension class is an error there, since the bridge knows nothing of
 Zena structs.
 
+A bridge throws an import's error as a Wasm tag, `("tw:tag", key)`, and
+takes an export's error the same way. `@external("tw:tag", key, "tw")`
+on a class extending `Error` makes it that tag's error: the tag's values
+are its constructor's parameters (a `String` as its JS string handle).
+An import with the option `throws:<key>` catches the tag and throws an
+instance of the class, and an export with `"tw, throws:<key>"` throws an
+escaping instance as the tag, its values read from the fields its
+constructor's parameters name. Any other exception passes through both
+unchanged.
+
+```zena
+@external("tw:tag", "err", "tw")
+export class Err extends Error {
+  arm: i32;
+  new(arm: i32, message: String) : arm = arm, super(message) {}
+}
+
+@external("tw:js/global", "parse(str)", "tw, throws:err")
+declare function parse(text: String): f64;
+
+@export("mustParse", "tw, throws:err")
+export function mustParse(text: String): f64 {
+  return parse(text);
+}
+```
+
 #### Re-exports
 
 Symbols can be re-exported from other libraries using `export { ... } from` or

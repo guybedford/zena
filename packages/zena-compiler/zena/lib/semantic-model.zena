@@ -414,6 +414,8 @@ export interface DeferredBodies {
 
 export final class SemanticModel {
   var typeIdGenerator: IdGenerator<TypeId> | null = null;
+  /** This module's `tw` tag classes, by tag key. */
+  var twTags = new Map<String, ClassType>();
 
   /**
    * Set on a module whose bodies wait for something to reach them: a

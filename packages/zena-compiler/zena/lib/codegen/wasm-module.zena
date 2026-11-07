@@ -762,6 +762,12 @@ export final class WasmFunction implements Hashable {
    * way round from an import wrapper.
    */
   var twExportWrapper: boolean = false;
+  /**
+   * A `tw` wrapper's tag (`"tw, throws:<key>"`): an import wrapper
+   * catches it and throws its class, and an export wrapper throws it
+   * for an escaping instance of its class.
+   */
+  var twThrows: WasmTag | null = null;
   var intrinsic: String | null = null;
 
   var isReached: boolean = false;
@@ -1046,6 +1052,8 @@ export final class WasmGlobal {
   var isImport: boolean = false;
   var importModule: String | null = null;
   var importName: String | null = null;
+  /** Written outside the IR (a tag's payload, by the emitter). */
+  var hostWritten: boolean = false;
   var initExpr: Expression | null = null;
   var initVTable: VTableInit | null = null;
   var initSingletonStruct: ClassType | null = null;
@@ -1276,6 +1284,23 @@ export final class ClassCodegenInfo {
 export final class WasmTag {
   var index: i32 = -1;
   signature: WasmSignature;
+  /** An imported tag's module and name; null for a defined tag. */
+  var importModule: String | null = null;
+  var importName: String | null = null;
+  /**
+   * Where a catch of this tag leaves its values, one global per
+   * parameter: IR catch edges carry no values, so the emitter stores
+   * them on the way in (`catchSignature` types the catch's block).
+   */
+  var payloadGlobals: GrowableArray<WasmGlobal> | null = null;
+  var catchSignature: WasmSignature | null = null;
+  /**
+   * A `tw` tag's class (`@external("tw:tag", key, "tw")`), and the names
+   * of its constructor's parameters: the fields its values are read
+   * from when an instance leaves through the tag.
+   */
+  var twClass: ClassType | null = null;
+  var twFields: GrowableArray<String> | null = null;
   new(this.signature);
 }
 
@@ -1466,6 +1491,9 @@ export final class WasmModule {
 
   var types = new Array<WasmType>();
   tags = new Array<WasmTag>();
+  /** Imported tags, which number before the defined ones. */
+  tagImports = new Array<WasmTag>();
+  twTags = new Map<String, WasmTag>();
   exportTagMap = new Map<String, WasmTag>();
   var exceptionTag: WasmTag | null = null;
   var exceptionPayload: WasmGlobal | null = null;
@@ -3004,9 +3032,12 @@ export final class WasmModule {
     this.layoutTypes();
     for (let rd in this.recordDispatchInfos) {
     }
+    for (var i = 0; i < this.tagImports.length; i += 1) {
+      this.tagImports[i].index = i;
+    }
     for (var i = 0; i < this.tags.length; i += 1) {
       let t = this.tags[i];
-      t.index = i;
+      t.index = this.tagImports.length + i;
     }
     this.bindIndices();
   }
