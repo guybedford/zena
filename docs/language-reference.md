@@ -5495,6 +5495,15 @@ instantiation from its import name:
 | a distinct type or class `N<A, B>`                                 | `N<A,B>`                   |
 | a type alias                                                       | the spelling of its target |
 
+A class whose IR name is not a Zena name, such as a namespaced or
+module-scoped class, gives its IR name with `@spelling`:
+
+```zena
+@spelling("WebAssembly.Module")
+extension class WebAssembly_Module on externref {}
+// id<WebAssembly_Module> imports "id<WebAssembly.Module>(T)"
+```
+
 A placeholder that names none of the function's type parameters is a compile
 error. So is a type argument with no spelling, such as a record, an interface or
 a union other than `T | null`.

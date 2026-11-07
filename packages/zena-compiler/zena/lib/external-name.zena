@@ -159,7 +159,7 @@ function functionSpelling(ft: FunctionType,
  * The ts-gen IR spelling of `t`, or null when the IR has no spelling for
  * it. A distinct type spells as its name, which is how a binding names
  * the IR declaration it stands for (`distinct type Request = externref`
- * spells `Request`). `isString` tells the standard library's String,
+ * spells `Request`), and a class as its `@spelling` if it has one. `isString` tells the standard library's String,
  * which is the IR's unboxed `str`.
  */
 export function irTypeSpelling(t: Type, isString: (ct: ClassType) => boolean): String | null {
@@ -183,7 +183,7 @@ export function irTypeSpelling(t: Type, isString: (ct: ClassType) => boolean): S
       } else if (ct.name == "array" && typeArguments != null && typeArguments.length == 1) {
         suffixSpelling(typeArguments[0], "[]", isString)
       } else {
-        namedSpelling(ct.name, typeArguments, isString)
+        namedSpelling((ct.genericSource ?? ct).irSpelling ?? ct.name, typeArguments, isString)
       }
     }
     case ArrayType {elementType}: suffixSpelling(elementType, "[]", isString)

@@ -388,6 +388,7 @@ export sealed class Statement extends Node {
      * affineness comes from the `Own<T>` wrapper.
      */
     isResource: boolean,
+    decorators: GrowableArray<Decorator>,
     loc: SourceLocation | null)
   case InterfaceDeclaration(
     name: Identifier,

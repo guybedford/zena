@@ -1377,6 +1377,11 @@ export final class ClassType extends Type {
   var isMixinIntermediate = false;
   var onType: Type | null = null;
   var genericSource: ClassType | null = null;
+  /**
+   * `@spelling("…")`: the class's ts-gen IR name, which a templated
+   * `@external` name spells it as in place of its Zena name.
+   */
+  var irSpelling: String | null = null;
   var declaredFields: HashSet<String> | null = null;
   var sealedVariants: GrowableArray<ClassType> | null = null;
   var forwardVariantNames: HashSet<String> | null = null;

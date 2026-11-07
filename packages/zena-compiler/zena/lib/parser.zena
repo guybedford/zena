@@ -606,7 +606,11 @@ export final class Parser {
         }
         return this.#parseDeclareFunction(decorators, decExported, startToken);
       }
-      throw this.#error("Expected 'declare' after decorator");
+      if (this.#check(TokenType.Class) || this.#check(TokenType.Final) ||
+          this.#check(TokenType.Abstract) || this.#check(TokenType.Extension)) {
+        return this.#parseClassDeclarationEntry(decExported, startToken, false, decorators);
+      }
+      throw this.#error("Expected 'declare' or a class after decorator");
     }
     
     // Export prefix
@@ -3469,7 +3473,8 @@ export final class Parser {
         next == TokenType.Abstract;
   }
 
-  #parseClassDeclarationEntry(exported: boolean, startToken: Token, isResource: boolean): ClassDeclaration {
+  #parseClassDeclarationEntry(exported: boolean, startToken: Token, isResource: boolean,
+      decorators: GrowableArray<Decorator> = new Array<Decorator>(0)): ClassDeclaration {
     var isFinal = false;
     var isAbstract = false;
     var isExtension = false;
@@ -3494,7 +3499,7 @@ export final class Parser {
       // unwrapped form. The two cannot both hold.
       throw this.#error("'resource' cannot be combined with 'extension'");
     }
-    return this.#parseClassDeclaration(exported, isFinal, isAbstract, isExtension, false, startToken, isResource);
+    return this.#parseClassDeclaration(exported, isFinal, isAbstract, isExtension, false, startToken, isResource, decorators);
   }
   
   #parseSealedClassEntry(exported: boolean, startToken: Token): ClassDeclaration {
@@ -3505,7 +3510,8 @@ export final class Parser {
     return this.#parseClassDeclaration(exported, false, isAbstract, false, true, startToken, false);
   }
   
-  #parseClassDeclaration(exported: boolean, isFinal: boolean, isAbstract: boolean, isExtension: boolean, isSealed: boolean, startToken: Token, isResource: boolean): ClassDeclaration {
+  #parseClassDeclaration(exported: boolean, isFinal: boolean, isAbstract: boolean, isExtension: boolean, isSealed: boolean, startToken: Token, isResource: boolean,
+      decorators: GrowableArray<Decorator> = new Array<Decorator>(0)): ClassDeclaration {
     let name = this.#parseIdentifier();
     
     // Type parameters: class Foo<T, U>
@@ -3624,7 +3630,7 @@ export final class Parser {
       name, typeParameters, caseParams, effectiveSuper, mixins, implementsList,
       body, exported, isFinal, isAbstract, isExtension, isSealed,
       if (sealedVariants.length > 0) { sealedVariants } else { null },
-      onType, isResource, this.#makeLocation(startToken)
+      onType, isResource, decorators, this.#makeLocation(startToken)
     );
   }
   

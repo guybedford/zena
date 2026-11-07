@@ -1,0 +1,20 @@
+// Fixture for tw-bindings_test.zena: classes whose ts-gen IR names
+// are not their Zena names spell as the IR names in templated imports.
+
+@external("tw:js/global", "id<{T}>(T)", "tw")
+declare function id<T>(value: T): T;
+
+@spelling("WebAssembly.Module")
+export extension class WebAssembly_Module on externref {}
+
+@spelling("node:fs.Stats")
+export extension class Stats<T> on externref {}
+
+export extension class Plain on externref {}
+
+export function main(m: WebAssembly_Module, s: Stats<f64>, p: Plain): i32 {
+  id<WebAssembly_Module>(m);
+  id<Stats<f64>>(s);
+  id<Plain>(p);
+  return 0;
+}

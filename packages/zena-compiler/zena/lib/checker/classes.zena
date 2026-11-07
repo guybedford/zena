@@ -3,7 +3,7 @@ import { growable } from 'zena:core';
 import { FlowUnreachable } from '../analysis/flow.zena';
 import { walkEnter } from '../visitor.zena';
 import {
-  AccessorDeclaration, BlockStatement, CaseClassParam, ClassDeclaration, Decorator, Expression, FieldDefinition, FieldInitializer, Identifier, MethodDefinition, MethodSignature, MixinDeclaration, Node, SealedVariant, SetterInfo, SourceLocation, SuperInitializer, TypeAnnotation, hasEnsuresClause, isBuiltinDecoratorName, isSymbolFieldDeclaration, syntacticMemberName
+  AccessorDeclaration, BlockStatement, CaseClassParam, ClassDeclaration, Decorator, Expression, FieldDefinition, FieldInitializer, Identifier, MethodDefinition, MethodSignature, MixinDeclaration, Node, SealedVariant, SetterInfo, SourceLocation, SuperInitializer, TypeAnnotation, decoratorStringArg, hasEnsuresClause, isBuiltinDecoratorName, isSymbolFieldDeclaration, syntacticMemberName
 } from '../ast.zena';
 import {
   BooleanType, ClassType, DecoratedField, ErrorType, FieldInfo, FunctionDeclInfo, FunctionType, I32Type, InterfaceType, MethodInfo, MixinType, OwnershipHandle, ReceiverKind, Type, TypeParameterType, VoidType, instantiateClassType, isNullableType, isScopedType, mentionsTypeParams, ownershipHandleInner, ownershipHandleOf, requiredParameterCount, scopedFieldNames, scopedInner, scopedTypeParamsOf, soleNonNullMember, typeCarriesOwner, typeToString
@@ -659,6 +659,24 @@ export function registerClassDeclaration(ctx: CheckerContext, cd: ClassDeclarati
   classType.decoratedFields = null;
   classType.declaredFields = null;
   classType.sealedVariants = null;
+  classType.irSpelling = null;
+  for (let dec in cd.decorators) {
+    let spelling = if (dec.name == "spelling" && dec.args.length == 1) {
+      decoratorStringArg(dec, 0)
+    } else {
+      null
+    };
+    if (spelling != null && spelling.length > 0) {
+      classType.irSpelling = spelling;
+    } else {
+      ctx.error(
+        "A class takes only '@spelling(\"<ts-gen IR name>\")', which names " +
+        "the class in templated @external names.",
+        DiagnosticCode.TypeMismatch,
+        dec.loc
+      );
+    }
+  }
 
   ctx.enterScope();
   if (cd.typeParameters != null) {
