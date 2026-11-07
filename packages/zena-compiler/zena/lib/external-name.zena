@@ -240,6 +240,7 @@ export function irTypeSpelling(t: Type, isString: (ct: ClassType) => boolean): S
     case I8Type: "i8"
     case I16Type: "i16"
     case BooleanType: "bool"
+    case VoidType: "void"
     case ExternRefType: "Any"
     case ClassType as ct: {
       let typeArguments = ct.typeArguments;

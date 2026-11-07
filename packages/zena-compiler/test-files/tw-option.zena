@@ -10,7 +10,12 @@ declare function put<V>(map: externref, value: Option<V>): void;
 @external("tw:js/global", "id<{T}>(T)", "tw")
 declare function id<T>(value: T): T;
 
+@external("tw:future", "resolve<{T}>", "tw")
+declare function resolve<T>(resolver: externref, value: T): void;
+
 export extension class Host on externref {}
+
+function nothing(): void {}
 
 export function main(map: externref): i32 {
   let a = find<f64>(map, "a");
@@ -24,5 +29,6 @@ export function main(map: externref): i32 {
   put<i32>(map, some<i32>(1));
   put<i32>(map, none);
   id<Option<f64>>(a);
+  resolve<void>(map, nothing());
   return if (let Some {value} = a) value as i32 else 0;
 }
