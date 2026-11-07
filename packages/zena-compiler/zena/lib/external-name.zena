@@ -1,0 +1,318 @@
+/**
+ * `@external` names templated per instantiation of a generic declare
+ * function. A `{T}` in the name stands for the spelling of `T`'s type
+ * argument, so each monomorphized instantiation imports under a name of
+ * its own: `Map#get<{K},{V}>(K)` at `<String, f64>` imports
+ * `Map#get<str,f64>(K)`. The spellings are the ts-gen IR's canonical
+ * type spellings, which have no spaces, so a bridge generated from the
+ * IR can derive the concrete variant from the import name alone.
+ */
+import {
+  Type, I32Type, U32Type, I64Type, U64Type, F32Type, F64Type, U8Type,
+  U16Type, I8Type, I16Type, BooleanType, VoidType, NullType, ExternRefType,
+  ArrayType, TupleType, InlineTupleType, UnionType, ClassType, FunctionType,
+  TypeParameterType, TypeAliasType, unwrapAliases,
+} from './types.zena';
+import { DeclareFunction, decoratorStringArg } from './ast.zena';
+
+/**
+ * An `@external` name split at its placeholders: `pieces` is the literal
+ * text around them, one more piece than there are `holes`. A malformed
+ * name has `error` set and no meaningful pieces.
+ */
+export final class ExternalNameTemplate {
+  pieces: GrowableArray<String>;
+  holes: GrowableArray<String>;
+  error: String | null;
+  new(this.pieces, this.holes, this.error);
+}
+
+function templateError(message: String) {
+  return new ExternalNameTemplate(new Array<String>(), new Array<String>(), message);
+}
+
+export function parseExternalNameTemplate(name: String): ExternalNameTemplate {
+  let pieces = new Array<String>();
+  let holes = new Array<String>();
+  var from = 0;
+  var i = 0;
+  while (i < name.length) {
+    let c = name.getByteAt(i);
+    if (c == 125) { // '}'
+      return templateError("Unmatched '}' in the @external name");
+    }
+    if (c != 123) { // '{'
+      i += 1;
+      continue;
+    }
+    var j = i + 1;
+    while (j < name.length && name.getByteAt(j) != 125) {
+      if (name.getByteAt(j) == 123) {
+        return templateError("Nested '{' in the @external name");
+      }
+      j += 1;
+    }
+    if (j >= name.length) {
+      return templateError("Unclosed '{' in the @external name");
+    }
+    if (j == i + 1) {
+      return templateError("Empty '{}' in the @external name");
+    }
+    pieces.push(name.sliceBytes(from, i));
+    holes.push(name.sliceBytes(i + 1, j));
+    from = j + 1;
+    i = j + 1;
+  }
+  pieces.push(name.sliceBytes(from, name.length));
+  return new ExternalNameTemplate(pieces, holes, null);
+}
+
+function joinSpellings(types: Array<Type>, isString: (ct: ClassType) => boolean): String | null {
+  var out = "";
+  for (var i = 0; i < types.length; i += 1) {
+    let spelled = irTypeSpelling(types[i], isString);
+    if (spelled == null) {
+      return null;
+    }
+    out = if (i == 0) spelled else `${out},${spelled}`;
+  }
+  return out;
+}
+
+function namedSpelling(name: String, typeArguments: Array<Type> | null,
+    isString: (ct: ClassType) => boolean): String | null {
+  if (typeArguments == null || typeArguments.length == 0) {
+    return name;
+  }
+  let args = joinSpellings(typeArguments, isString);
+  if (args == null) {
+    return null;
+  }
+  return `${name}<${args}>`;
+}
+
+function tupleSpelling(elementTypes: Array<Type>,
+    isString: (ct: ClassType) => boolean): String | null {
+  if (elementTypes.length == 0) {
+    return null;
+  }
+  let elements = joinSpellings(elementTypes, isString);
+  if (elements == null) {
+    return null;
+  }
+  return if (elementTypes.length == 1) {
+    `(${elements},)`
+  } else {
+    `(${elements})`
+  };
+}
+
+function suffixSpelling(t: Type, suffix: String,
+    isString: (ct: ClassType) => boolean): String | null {
+  let spelled = irTypeSpelling(t, isString);
+  if (spelled == null) {
+    return null;
+  }
+  return `${spelled}${suffix}`;
+}
+
+/** `T | null` is the IR's `T?`; the IR has no other unions. */
+function nullableSpelling(types: Array<Type>,
+    isString: (ct: ClassType) => boolean): String | null {
+  if (types.length != 2) {
+    return null;
+  }
+  if (types[0] is NullType) {
+    return suffixSpelling(types[1], "?", isString);
+  }
+  if (types[1] is NullType) {
+    return suffixSpelling(types[0], "?", isString);
+  }
+  return null;
+}
+
+function functionSpelling(ft: FunctionType,
+    isString: (ct: ClassType) => boolean): String | null {
+  let typeParameters = ft.typeParameters;
+  if (typeParameters != null && typeParameters.length > 0) {
+    return null;
+  }
+  let params = if (ft.parameters.length == 0) {
+    ""
+  } else {
+    joinSpellings(ft.parameters, isString)
+  };
+  if (params == null) {
+    return null;
+  }
+  if (ft.returnType is VoidType) {
+    return `fn(${params})`;
+  }
+  let result = irTypeSpelling(ft.returnType, isString);
+  if (result == null) {
+    return null;
+  }
+  return `fn(${params})->${result}`;
+}
+
+/**
+ * The ts-gen IR spelling of `t`, or null when the IR has no spelling for
+ * it. A distinct type spells as its name, which is how a binding names
+ * the IR declaration it stands for (`distinct type Request = externref`
+ * spells `Request`). `isString` tells the standard library's String,
+ * which is the IR's unboxed `str`.
+ */
+export function irTypeSpelling(t: Type, isString: (ct: ClassType) => boolean): String | null {
+  return match (t) {
+    case I32Type: "i32"
+    case U32Type: "u32"
+    case I64Type: "i64"
+    case U64Type: "u64"
+    case F32Type: "f32"
+    case F64Type: "f64"
+    case U8Type: "u8"
+    case U16Type: "u16"
+    case I8Type: "i8"
+    case I16Type: "i16"
+    case BooleanType: "bool"
+    case ExternRefType: "Any"
+    case ClassType as ct: {
+      let typeArguments = ct.typeArguments;
+      if (isString(ct)) {
+        "str"
+      } else if (ct.name == "array" && typeArguments != null && typeArguments.length == 1) {
+        suffixSpelling(typeArguments[0], "[]", isString)
+      } else {
+        namedSpelling(ct.name, typeArguments, isString)
+      }
+    }
+    case ArrayType {elementType}: suffixSpelling(elementType, "[]", isString)
+    case TupleType {elementTypes, row}: {
+      if (row != null) null else tupleSpelling(elementTypes, isString)
+    }
+    case InlineTupleType {elementTypes}: tupleSpelling(elementTypes, isString)
+    case UnionType {types}: nullableSpelling(types, isString)
+    case FunctionType as ft: functionSpelling(ft, isString)
+    case TypeAliasType as ta: {
+      if (ta.isDistinct) {
+        namedSpelling(ta.name, ta.typeArguments, isString)
+      } else {
+        let target = unwrapAliases(ta);
+        if (target is TypeAliasType && !target.isDistinct) {
+          null
+        } else {
+          irTypeSpelling(target, isString)
+        }
+      }
+    }
+    case _: null
+  };
+}
+
+/**
+ * `template` with each placeholder replaced by the spelling of its type
+ * argument. Throws when a placeholder names none of `typeParameters` or
+ * an argument has no IR spelling: the checker reports the first at the
+ * declaration, and the second depends on the instantiation.
+ */
+export function renderExternalName(template: ExternalNameTemplate,
+    functionName: String, typeParameters: Array<TypeParameterType> | null,
+    typeArguments: Array<Type>, isString: (ct: ClassType) => boolean): String {
+  var out = template.pieces[0];
+  for (var h = 0; h < template.holes.length; h += 1) {
+    let hole = template.holes[h];
+    var index = -1;
+    if (typeParameters != null) {
+      for (var p = 0; p < typeParameters.length; p += 1) {
+        if (typeParameters[p].name == hole) {
+          index = p;
+        }
+      }
+    }
+    if (index < 0 || index >= typeArguments.length) {
+      throw new Error(`'{${hole}}' in the @external name of '${functionName}' names no type parameter`);
+    }
+    let spelled = irTypeSpelling(typeArguments[index], isString);
+    if (spelled == null) {
+      throw new Error(`The type argument for '${hole}' of '${functionName}' has no ts-gen IR spelling for its @external name`);
+    }
+    out = `${out}${spelled}${template.pieces[h + 1]}`;
+  }
+  return out;
+}
+
+/**
+ * What a declare function's `@external` decorator names. `name` is the
+ * written name, which for a generic declaration is a template
+ * (external-name.zena).
+ */
+export final class ExternalImportSpec {
+  module: String;
+  name: String;
+  isAsync: boolean;
+  canonType: String;
+  new(this.module, this.name, this.isAsync, this.canonType);
+}
+
+/** The `@external` decorator of `decl`, or null when it has none. */
+export function externalImportSpec(decl: DeclareFunction): ExternalImportSpec | null {
+  for (let dec in decl.decorators) {
+    if (dec.name != "external") {
+      continue;
+    }
+    if (dec.args.length != 2 && dec.args.length != 3) {
+      throw new Error("External decorator must have two or three arguments");
+    }
+    var isAsync = false;
+    var canonType = "";
+    // A third argument is the import's canonical options, comma
+    // separated. `async` is one; a WIT type spelling (`stream<u8>`,
+    // `future:<interface>#<payload>`) names the type a typed
+    // canonical builtin operates on. The rest of the canonical
+    // option space (memory, realloc, string-encoding) is the
+    // compiler's business rather than the program's, because only
+    // the compiler knows where the memory lives. The split is
+    // depth-aware: a future payload like `result<a, b>` carries
+    // commas of its own, so only depth-zero commas separate.
+    if (dec.args.length == 3) {
+      let raw = decoratorStringArg(dec, 2) ?? "";
+      let optionList = new Array<String>();
+      var depth = 0;
+      var from = 0;
+      for (var oi = 0; oi <= raw.length; oi += 1) {
+        if (oi < raw.length) {
+          let c = raw.getByteAt(oi);
+          if (c == 60) { depth += 1; continue; } // '<'
+          if (c == 62) { depth -= 1; continue; } // '>'
+          if (c != 44 || depth > 0) { continue; } // ','
+        }
+        var piece = raw.sliceBytes(from, oi);
+        while (piece.startsWith(" ")) {
+          piece = piece.sliceBytes(1, piece.length);
+        }
+        optionList.push(piece);
+        from = oi + 1;
+      }
+      for (let option in optionList) {
+        if (option == "async") {
+          isAsync = true;
+        } else if (option.startsWith("stream") ||
+            option.startsWith("future") ||
+            option.startsWith("resource:") ||
+            option.startsWith("return:")) {
+          canonType = option;
+        } else if (option != "") {
+          throw new Error(
+            "Unknown @external option '" + option + "' on '" +
+            decl.name.name + "' (expected 'async', a stream/" +
+            "future type like 'stream<u8>', a " +
+            "'resource:<interface>#<name>' reference, or a " +
+            "'return:<interface>#<type>' result type)");
+        }
+      }
+    }
+    return new ExternalImportSpec(decoratorStringArg(dec, 0) ?? "",
+        decoratorStringArg(dec, 1) ?? "", isAsync, canonType);
+  }
+  return null;
+}

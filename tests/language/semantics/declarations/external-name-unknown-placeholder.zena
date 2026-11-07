@@ -1,0 +1,17 @@
+// @mode: check
+// A placeholder in a declare function's @external name must name one of
+// its type parameters, and the name must be well formed.
+@external("tw:js/global", "Map#get<{K},{W}>(K)") // @error: '{W}' in the @external name of 'mapGet' names no type parameter
+declare function mapGet<K, V>(key: K): V;
+
+@external("tw:js/global", "log<{T}>") // @error: '{T}' in the @external name of 'log' names no type parameter
+declare function log(value: i32): void;
+
+@external("tw:js/global", "open<{T>") // @error: Unclosed '{' in the @external name of 'open'
+declare function open<T>(value: T): void;
+
+@external("tw:js/global", "empty<{}>") // @error: Empty '{}' in the @external name of 'empty'
+declare function empty<T>(value: T): void;
+
+@external("tw:js/global", "stray<T}>") // @error: Unmatched '}' in the @external name of 'stray'
+declare function stray<T>(value: T): void;

@@ -20,6 +20,7 @@ import {
 import { Program, CompilationUnit } from '../program.zena';
 import { stdlibLibraryOf, stdlibLibraryAnswers } from '../stdlib-manifest.zena';
 import { defaultImportedStringConstants, targetUsesJsStrings } from '../targets.zena';
+import { ExternalNameTemplate, renderExternalName } from '../external-name.zena';
 
 import {
   compareStrings, ClassKey, InterfaceKey, ClassInterfaceKey, CellKey, ClosureKey, ExportKey, ExportGlobalKey, getClassKey, getClassPrivateFieldKey, isPresentWordName, presentWordCount, presentWordName, FunctionAdaptationKey, getFunctionAdaptationKey, ClassMethodKey, getClassMethodKey, SpecializedFunctionKey, ClosureSpecializationKey, FunctionValueWrapperKey,
@@ -1874,12 +1875,41 @@ export final class WasmModule {
   templateLiteralGlobals = new NodeMap<WasmGlobal>();
   genericFunctions = new Map<SymbolId, FunctionExpression>();
   genericFunctionModels = new Map<SymbolId, SemanticModel>();
+  /**
+   * Generic `@external` declare functions, imported once per distinct
+   * name their template renders (external-name.zena) rather than once
+   * per type-argument key, which collapses distinct types.
+   */
+  genericExternals = new Map<SymbolId, DeclareFunction>();
+  genericExternalModels = new Map<SymbolId, SemanticModel>();
+  genericExternalTemplates = new Map<SymbolId, ExternalNameTemplate>();
+  externalInstances = new Map<String, WasmFunction>();
   genericMethods = new Map<ClassMethodKey, MethodDefinition>();
   genericMethodModels = new Map<ClassMethodKey, SemanticModel>();
   specializedFunctions = new Map<SpecializedFunctionKey, WasmFunction>();
   
   functionAdaptationWrappers = new NodeMap<WasmFunction>();
   symbolNames = new Map<SymbolId, String>();
+
+  /** Whether a call of `id` names a specialization per type arguments. */
+  isGenericFunction(id: SymbolId): boolean {
+    return this.genericFunctions.has(id) || this.genericExternals.has(id);
+  }
+
+  /** The import name of the generic external `id` at `typeArgs`. */
+  genericExternalName(id: SymbolId, typeArgs: Array<Type>): String {
+    let decl = this.genericExternals[id];
+    let ft = this.genericExternalModels[id].getNodeType(decl) as FunctionType;
+    let stringClass = this.stringClass;
+    return renderExternalName(this.genericExternalTemplates[id], decl.name.name,
+        ft.typeParameters, typeArgs,
+        (ct) => stringClass != null && ct.symbolId == stringClass.symbolId);
+  }
+
+  /** The key of the instance of `id` imported under `name`. */
+  externalInstanceKey(id: SymbolId, name: String): String {
+    return `${i32ToString(id as i32)}|${name}`;
+  }
   
   /** A record dispatch whose fat pointer is `st`, or null when `st` is not one. */
   recordDispatchOfFatPointer(st: WasmStruct): RecordDispatchInfo | null {

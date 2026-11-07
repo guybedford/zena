@@ -10,6 +10,7 @@ import { SymbolId } from '../../scope/symbol.zena';
 import { WasmType } from '../wasm.zena';
 import { MixinKey, ClassMethodKey, ClassKey, getClassKey } from '../codegen-utils.zena';
 import { ClassHierarchyAnalysis } from './hierarchy.zena';
+import { ExternalImportSpec } from '../../external-name.zena';
 
 /**
  * Referrer tracks the source and context of why a particular node or member
@@ -136,6 +137,9 @@ export interface ReachabilityVisitorInterface {
   discoverVariableDeclaration(symId: SymbolId, varDecl: VariableDeclaration, moduleModel: SemanticModel): void;
   discoverFunctionDeclaration(symId: SymbolId, funcDecl: FunctionDeclaration, moduleModel: SemanticModel): void;
   discoverDeclareFunction(decl: DeclareFunction, moduleModel: SemanticModel): void;
+  createExternalImport(decl: DeclareFunction, model: SemanticModel,
+      funcType: FunctionType, spec: ExternalImportSpec, importName: String,
+      functionName: String): WasmFunction;
   registerWrapper(keyName: String, ft: FunctionType, targetWasmFunc: WasmFunction, model: SemanticModel): void;
   discoverFunctionValueWrapper(ft: FunctionType, model: SemanticModel): void;
   queueCancellationMachinery(futureType: ClassType, model: SemanticModel): void;

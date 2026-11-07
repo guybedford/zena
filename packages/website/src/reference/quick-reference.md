@@ -2483,6 +2483,19 @@ declare function log(val: i32): void;
 declare function now(): i64;
 ```
 
+A generic declare function is imported once per distinct instantiation. A
+`{T}` in its name is replaced by the spelling of `T`'s type argument, so each
+instantiation gets its own import name:
+
+```zena
+distinct type JsMap<K, V> = externref;
+
+@external("tw:js/global", "Map#get<{K},{V}>(K)")
+declare function mapGet<K, V>(m: JsMap<K, V>, key: K): V;
+
+mapGet(m, 'a');  // imports "Map#get<str,f64>(K)" when m is JsMap<String, f64>
+```
+
 ## Intrinsics & Decorators
 
 Intrinsics and decorators provide low-level control over code generation and

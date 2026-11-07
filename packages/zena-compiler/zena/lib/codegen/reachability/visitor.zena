@@ -39,6 +39,7 @@ import { WellKnown, isWellKnown } from '../../well-known.zena';
 import { stdlibLibraryOf, stdlibLibraryAnswers } from '../../stdlib-manifest.zena';
 import { growable } from 'zena:core';
 import { targetUsesJsStrings } from '../../targets.zena';
+import { ExternalImportSpec, externalImportSpec } from '../../external-name.zena';
 
 /**
  * TypeLowerer translates Zena semantic types into their target WebAssembly representation,
@@ -1482,7 +1483,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
                         resolvedArgs.push(arg);
                       }
                       if (noOpenTypeParameters(resolvedArgs) &&
-                          this.pass.wasm.genericFunctions.has(target.id)) {
+                          this.pass.wasm.isGenericFunction(target.id)) {
                         let spec = this.pass.specializer.instantiateGenericFunction(
                             target.id, resolvedArgs);
                         this.#noteSpecializedCall(parentNode, targetModel, spec);
@@ -3399,7 +3400,7 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
               }
             }
             let isSpecialized = resolvedArgs.length > 0 && noOpenTypeParameters(resolvedArgs);
-            if (isSpecialized && targetSymId != noSymbolId && this.pass.wasm.genericFunctions.has(targetSymId)) {
+            if (isSpecialized && targetSymId != noSymbolId && this.pass.wasm.isGenericFunction(targetSymId)) {
               let spec = this.pass.specializer.instantiateGenericFunction(targetSymId, resolvedArgs);
               this.#noteSpecializedCall(parentNode as CallExpression, model, spec);
             } else if (targetSymId != noSymbolId) {
@@ -3930,11 +3931,6 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
 
     var isIntrinsic = false;
     var intrinsicName = "";
-    var isExternal = false;
-    var externalModule = "";
-    var externalName = "";
-    var externalAsync = false;
-    var externalCanonType = "";
     for (let dec in decl.decorators) {
       if (dec.name == "intrinsic") {
         if (dec.args.length == 1) {
@@ -3943,62 +3939,9 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
         } else {
           throw new Error("Intrinsic decorator must have exactly one argument");
         }
-      } else if (dec.name == "external") {
-        if (dec.args.length == 2 || dec.args.length == 3) {
-          externalModule = decoratorStringArg(dec, 0) ?? "";
-          externalName = decoratorStringArg(dec, 1) ?? "";
-          isExternal = true;
-          // A third argument is the import's canonical options, comma
-          // separated. `async` is one; a WIT type spelling (`stream<u8>`,
-          // `future:<interface>#<payload>`) names the type a typed
-          // canonical builtin operates on. The rest of the canonical
-          // option space (memory, realloc, string-encoding) is the
-          // compiler's business rather than the program's, because only
-          // the compiler knows where the memory lives. The split is
-          // depth-aware: a future payload like `result<a, b>` carries
-          // commas of its own, so only depth-zero commas separate.
-          if (dec.args.length == 3) {
-            let raw = decoratorStringArg(dec, 2) ?? "";
-            let optionList = new Array<String>();
-            var depth = 0;
-            var from = 0;
-            for (var oi = 0; oi <= raw.length; oi += 1) {
-              if (oi < raw.length) {
-                let c = raw.getByteAt(oi);
-                if (c == 60) { depth += 1; continue; } // '<'
-                if (c == 62) { depth -= 1; continue; } // '>'
-                if (c != 44 || depth > 0) { continue; } // ','
-              }
-              var piece = raw.sliceBytes(from, oi);
-              while (piece.startsWith(" ")) {
-                piece = piece.sliceBytes(1, piece.length);
-              }
-              optionList.push(piece);
-              from = oi + 1;
-            }
-            for (let option in optionList) {
-              if (option == "async") {
-                externalAsync = true;
-              } else if (option.startsWith("stream") ||
-                  option.startsWith("future") ||
-                  option.startsWith("resource:") ||
-                  option.startsWith("return:")) {
-                externalCanonType = option;
-              } else if (option != "") {
-                throw new Error(
-                  "Unknown @external option '" + option + "' on '" +
-                  decl.name.name + "' (expected 'async', a stream/" +
-                  "future type like 'stream<u8>', a " +
-                  "'resource:<interface>#<name>' reference, or a " +
-                  "'return:<interface>#<type>' result type)");
-              }
-            }
-          }
-        } else {
-          throw new Error("External decorator must have two or three arguments");
-        }
       }
     }
+    let external = externalImportSpec(decl);
 
     if (isIntrinsic) {
       let key = `${moduleModel.sourcePath}::${decl.name.name}`;
@@ -4052,75 +3995,84 @@ export final class ReachabilityVisitor implements ReachabilityVisitorInterface {
           }
         }
       }
-    } else if (isExternal) {
+    } else if (external != null) {
+      // A generic one is imported per instantiation, by the specializer.
+      if (this.pass.wasm.genericExternals.has(sym.id)) {
+        return;
+      }
       let funcType = moduleModel.getNodeType(decl) as FunctionType;
-      // A host import moves strings across the boundary too: the host
-      // READS String parameters it receives (console's log_string) and
-      // WRITES String returns it produces.
-      this.pass.noteHostImportSignature(funcType);
-      let params = new Array<ValType>();
-      for (let pt in funcType.parameters) {
-        mapParamTypeToWasmParams(this.pass.wasm, pt, params);
-      }
-      let returns = new Array<ValType>();
-      mapReturnTypeToWasmResults(this.pass.wasm, funcType.returnType, returns);
-
-      if (externalModule == "wasm:js-string") {
-        for (var i = 0; i < returns.length; i += 1) {
-          if (returns[i] is ValTypeExternRef) {
-            returns[i] = new ValTypeRefExtern();
-          }
-        }
-      }
-
-      var isGcRef = false;
-      if (returns.length == 1) {
-        match (returns[0]) {
-          case ValTypeAnyRef: { isGcRef = true; }
-          case ValTypeEqRef: { isGcRef = true; }
-          case ValTypeStructRef: { isGcRef = true; }
-          case ValTypeRef: { isGcRef = true; }
-          case ValTypeRefNull: { isGcRef = true; }
-          case _: {}
-        }
-      }
-
-      if (isGcRef) {
-        let importReturns = growable<ValType>([new ValTypeExternRef()]);
-        let importSig = this.pass.wasm.getSignature(params, importReturns);
-        let importFunc = new WasmFunction(importSig, decl, moduleModel);
-        importFunc.isImport = true;
-        importFunc.importModule = externalModule;
-        importFunc.importName = externalName;
-        importFunc.importIsAsync = externalAsync;
-        importFunc.importCanonType = externalCanonType;
-        importFunc.name = decl.name.name + "_raw_import";
-        this.pass.wasm.functionImports.push(importFunc);
-
-        let wrapperSig = this.pass.wasm.getSignature(params, returns);
-        let wrapperFunc = new WasmFunction(wrapperSig, decl, moduleModel);
-        wrapperFunc.name = decl.name.name;
-        wrapperFunc.importWrapperTarget = importFunc;
-        this.pass.wasm.addFunction(wrapperFunc);
-
-        this.pass.wasm.functionMap[sym.id] = wrapperFunc;
-      } else {
-        let sig = this.pass.wasm.getSignature(params, returns);
-        let wasmFunc = new WasmFunction(sig, decl, moduleModel);
-        wasmFunc.isImport = true;
-        wasmFunc.importModule = externalModule;
-        wasmFunc.importName = externalName;
-        wasmFunc.importIsAsync = externalAsync;
-        wasmFunc.importCanonType = externalCanonType;
-        this.pass.wasm.functionImports.push(wasmFunc);
-        this.pass.wasm.functionMap[sym.id] = wasmFunc;
-      }
-      
-      let finalFunc = this.pass.wasm.functionMap[sym.id];
+      let finalFunc = this.createExternalImport(decl, moduleModel, funcType,
+          external, external.name, decl.name.name);
+      this.pass.wasm.functionMap[sym.id] = finalFunc;
       if (this.pass.currentReachable) {
         this.pass.markFunctionReached(finalFunc);
       }
     }
+  }
+
+  /**
+   * The import of `decl` under `importName` at the signature `funcType`,
+   * and the function that calls it: the import itself, or a wrapper
+   * that converts a GC reference result the host returns as externref.
+   */
+  createExternalImport(decl: DeclareFunction, model: SemanticModel,
+      funcType: FunctionType, spec: ExternalImportSpec, importName: String,
+      functionName: String): WasmFunction {
+    // A host import moves strings across the boundary too: the host
+    // READS String parameters it receives (console's log_string) and
+    // WRITES String returns it produces.
+    this.pass.noteHostImportSignature(funcType);
+    let params = new Array<ValType>();
+    for (let pt in funcType.parameters) {
+      mapParamTypeToWasmParams(this.pass.wasm, pt, params);
+    }
+    let returns = new Array<ValType>();
+    mapReturnTypeToWasmResults(this.pass.wasm, funcType.returnType, returns);
+
+    if (spec.module == "wasm:js-string") {
+      for (var i = 0; i < returns.length; i += 1) {
+        if (returns[i] is ValTypeExternRef) {
+          returns[i] = new ValTypeRefExtern();
+        }
+      }
+    }
+
+    var isGcRef = false;
+    if (returns.length == 1) {
+      match (returns[0]) {
+        case ValTypeAnyRef: { isGcRef = true; }
+        case ValTypeEqRef: { isGcRef = true; }
+        case ValTypeStructRef: { isGcRef = true; }
+        case ValTypeRef: { isGcRef = true; }
+        case ValTypeRefNull: { isGcRef = true; }
+        case _: {}
+      }
+    }
+
+    let importSig = if (isGcRef) {
+      this.pass.wasm.getSignature(params, growable<ValType>([new ValTypeExternRef()]))
+    } else {
+      this.pass.wasm.getSignature(params, returns)
+    };
+    let importFunc = new WasmFunction(importSig, decl, model);
+    importFunc.isImport = true;
+    importFunc.importModule = spec.module;
+    importFunc.importName = importName;
+    importFunc.importIsAsync = spec.isAsync;
+    importFunc.importCanonType = spec.canonType;
+    this.pass.wasm.functionImports.push(importFunc);
+    if (!isGcRef) {
+      if (functionName != decl.name.name) {
+        importFunc.name = functionName;
+      }
+      return importFunc;
+    }
+    importFunc.name = `${functionName}_raw_import`;
+    let wrapperFunc = new WasmFunction(this.pass.wasm.getSignature(params, returns), decl, model);
+    wrapperFunc.name = functionName;
+    wrapperFunc.importWrapperTarget = importFunc;
+    this.pass.wasm.addFunction(wrapperFunc);
+    return wrapperFunc;
   }
 
   registerStringHashHelper(model: SemanticModel): void {

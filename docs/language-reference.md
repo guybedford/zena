@@ -5457,6 +5457,48 @@ declare function log(val: i32): void;
 These declarations map to WebAssembly imports, allowing Zena to call JavaScript
 functions (or other WASM modules).
 
+#### Generic Imports
+
+A generic declare function is monomorphized like any other generic function,
+and each instantiation is imported separately. A `{T}` placeholder in the
+`@external` name is replaced by the spelling of the type argument for `T`,
+which gives each instantiation its own import name. Instantiations that spell
+the same name share one import.
+
+```zena
+distinct type JsMap<K, V> = externref;
+
+@external("tw:js/global", "Map#get<{K},{V}>(K)")
+declare function mapGet<K, V>(m: JsMap<K, V>, key: K): V;
+
+let m = mapNew<String, f64>();
+mapGet(m, 'a');  // imports "Map#get<str,f64>(K)"
+mapGet(m, 'b');  // the same import
+```
+
+The spellings are the canonical type spellings of the ts-gen IR, written with
+no spaces, so a host binding generated from the IR can recognize the
+instantiation from its import name:
+
+| Type argument                                                      | Spelling                   |
+| ------------------------------------------------------------------ | -------------------------- |
+| `i32`, `u32`, `i64`, `u64`, `f32`, `f64`, `i8`, `u8`, `i16`, `u16` | the same name              |
+| `boolean`                                                          | `bool`                     |
+| `String`                                                           | `str`                      |
+| `externref`                                                        | `Any`                      |
+| `T \| null`                                                        | `T?`                       |
+| `array<T>`                                                         | `T[]`                      |
+| `(A, B)`                                                           | `(A,B)`                    |
+| `(A,)` (one element)                                               | `(A,)`                     |
+| `(a: A, b: B) => R`                                                | `fn(A,B)->R`               |
+| `(a: A) => void`                                                   | `fn(A)`                    |
+| a distinct type or class `N<A, B>`                                 | `N<A,B>`                   |
+| a type alias                                                       | the spelling of its target |
+
+A placeholder that names none of the function's type parameters is a compile
+error. So is a type argument with no spelling, such as a record, an interface or
+a union other than `T | null`.
+
 #### Re-exports
 
 Symbols can be re-exported from other libraries using `export { ... } from` or

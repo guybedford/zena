@@ -1,0 +1,52 @@
+/**
+ * A generic `@external` declare function imports once per distinct name
+ * its template renders, `{T}` standing for the ts-gen IR spelling of
+ * `T`'s type argument (external-name.zena).
+ */
+
+import { suite, test, TestContext } from 'zena:test';
+import { equal, isTrue, isFalse } from 'zena:assert';
+import { readFileSync } from 'zena:fs';
+import { compileFile } from '../lib/compile-file.zena';
+import { stdlibRoot } from './test-utils.zena';
+
+let entry = 'packages/zena-compiler/test-files/templated-external.zena';
+let outPath = 'packages/zena-compiler/zena/out/templated-external.wat';
+
+/** The names the module imports from `tw:js/global`, one per line, in order. */
+function templatedImports() {
+  equal(compileFile({entry, outPath, target: 'js', stdlibRoot}), 0);
+  let prefix = '  (import "tw:js/global" "';
+  var out = '';
+  for (let line in readFileSync(outPath).split('\n')) {
+    if (line.startsWith(prefix)) {
+      out = `${out}${line.split('"')[3]}\n`;
+    }
+  }
+  return out;
+}
+
+export let tests = suite('templated @external names', () => {
+  test('each instantiation imports under its rendered name, once', (ctx) => {
+    equal(templatedImports(),
+        'Map#new<str,f64>()\n' +
+        'Map#get<str,f64>(K)\n' +
+        'Map#new<str,JsMap<i32,bool>>()\n' +
+        'Map#get<str,JsMap<i32,bool>>(K)\n' +
+        'Map#get<i32,bool>(K)\n' +
+        'id<Request>\n' +
+        'id<Response>\n' +
+        'pair<i32,str>\n' +
+        'pair<(i32,str),JsMap<str,f64>>\n' +
+        'call<fn(i32)->str>\n' +
+        'call<fn()>\n' +
+        'maybe<str?>\n');
+  });
+
+  test('a non-generic import keeps its written name', (ctx) => {
+    templatedImports();
+    let wat = readFileSync(outPath);
+    isTrue(wat.contains('(import "env" "getRequest"'));
+    isFalse(wat.contains('<{'));
+  });
+});

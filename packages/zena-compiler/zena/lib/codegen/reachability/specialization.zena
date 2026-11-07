@@ -8,7 +8,7 @@ import {
 } from '../../ast.zena';
 import { WasmStruct, WasmField, WasmGlobal, WasmFunction, ClassCodegenInfo } from '../wasm-module.zena';
 import {
-  ValType, ValTypeVoid, ValTypeI32, ValTypeRefNull, ValTypeAnyRef, ValTypeRef, ValTypeStructRef, ValTypeFuncRef,
+  ValType, ValTypeVoid, ValTypeI32, ValTypeRefNull, ValTypeAnyRef, ValTypeRef, ValTypeStructRef, ValTypeFuncRef, valTypeEquals,
 } from '../wasm.zena';
 import { SymbolId, noSymbolId } from '../../scope/symbol.zena';
 import { Set } from 'zena:collections';
@@ -16,6 +16,7 @@ import { Set } from 'zena:collections';
 import { getClassKey, getInterfaceKey, getInterfaceConstructorBaseName, getClassMethodKey, getClassInterfaceKey, getSignatureKey, matchOverload, collectMixinMembers, getMemberRootClass, getClassPrivateFieldKey, getSpecializedFunctionKey, getSpecializedName, isConcrete, MixinKey, containsErasedType, findMixinDeclaration } from '../codegen-utils.zena';
 import { typeToValType, mapReturnTypeToWasmResults, mapParamTypeToWasmParams, substituteTypeParamsInCodegen, substituteTypeParamsInClassContext, getClassTypeParameters, getInterfaceTypeParameters, interfaceMethodOverloads, getClosureStruct } from '../type-mapping.zena';
 import { growable } from 'zena:core';
+import { ExternalImportSpec, externalImportSpec } from '../../external-name.zena';
 
 /**
  * A struct field whose class type was not yet registered when the
@@ -2388,6 +2389,9 @@ export final class Specializer implements SpecializerInterface {
   }
 
   instantiateGenericFunction(symId: SymbolId, typeArgs: Array<Type>): WasmFunction {
+    if (this.pass.wasm.genericExternals.has(symId)) {
+      return this.instantiateGenericExternal(symId, typeArgs);
+    }
     let funcExpr = this.pass.wasm.genericFunctions[symId];
     let model = this.pass.wasm.genericFunctionModels[symId];
 
@@ -2463,6 +2467,53 @@ export final class Specializer implements SpecializerInterface {
       this.pass.traverseDependencies(deps, model, null, typeArgs, funcExpr);
     }
 
+    return wasmFunc;
+  }
+
+  /**
+   * The import of a generic `@external` declare function at `typeArgs`,
+   * named by its rendered template. Instantiations that render the same
+   * name share one import, so they must also share its signature.
+   */
+  instantiateGenericExternal(symId: SymbolId, typeArgs: Array<Type>): WasmFunction {
+    let wasm = this.pass.wasm;
+    let decl = wasm.genericExternals[symId];
+    let model = wasm.genericExternalModels[symId];
+    let importName = wasm.genericExternalName(symId, typeArgs);
+    let funcType = model.getNodeType(decl) as FunctionType;
+    let typeParams = funcType.typeParameters;
+    let params = new Array<Type>();
+    for (let p in funcType.parameters) {
+      let subType = substituteTypeParamsInCodegen(wasm, typeParams, typeArgs, p);
+      this.pass.typeLowerer.discoverType(subType, model);
+      params.push(subType);
+    }
+    let returnType = substituteTypeParamsInCodegen(wasm, typeParams, typeArgs, funcType.returnType);
+    this.pass.typeLowerer.discoverType(returnType, model);
+    let concrete = new FunctionType(params, returnType, null, null, null);
+
+    let key = wasm.externalInstanceKey(symId, importName);
+    if (let (true, existing) = wasm.externalInstances.get(key)) {
+      let mapped = new Array<ValType>();
+      for (let p in params) {
+        mapParamTypeToWasmParams(wasm, p, mapped);
+      }
+      let existingParams = existing.signature.params;
+      var same = mapped.length == existingParams.length;
+      for (var i = 0; same && i < mapped.length; i += 1) {
+        same = valTypeEquals(mapped[i], existingParams[i]);
+      }
+      if (!same) {
+        throw new Error(`Two instantiations of '${decl.name.name}' import '${importName}' with different signatures; its @external name needs a placeholder for each type parameter its parameters depend on`);
+      }
+      this.pass.markFunctionReached(existing);
+      return existing;
+    }
+    let spec = externalImportSpec(decl) as ExternalImportSpec;
+    let wasmFunc = this.pass.visitor.createExternalImport(decl, model, concrete,
+        spec, importName, getSpecializedName(decl.name.name, typeArgs));
+    wasm.externalInstances[key] = wasmFunc;
+    this.pass.markFunctionReached(wasmFunc);
     return wasmFunc;
   }
 

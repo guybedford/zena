@@ -1,0 +1,49 @@
+// Fixture for templated-external_test.zena: generic `@external` declare
+// functions whose import names are templated per instantiation.
+
+distinct type JsMap<K, V> = externref;
+distinct type Request = externref;
+distinct type Response = externref;
+
+@external("tw:js/global", "Map#get<{K},{V}>(K)")
+declare function mapGet<K, V>(m: JsMap<K, V>, key: K): V;
+
+@external("tw:js/global", "Map#new<{K},{V}>()")
+declare function mapNew<K, V>(): JsMap<K, V>;
+
+@external("tw:js/global", "id<{T}>")
+declare function id<T>(value: T): T;
+
+@external("tw:js/global", "pair<{A},{B}>")
+declare function pair<A, B>(a: A, b: B): void;
+
+@external("tw:js/global", "call<{F}>")
+declare function call<F>(f: F): void;
+
+@external("tw:js/global", "maybe<{T}>")
+declare function maybe<T>(value: T): void;
+
+@external("env", "getRequest")
+declare function getRequest(): Request;
+
+@external("env", "getResponse")
+declare function getResponse(): Response;
+
+export function main(): f64 {
+  let m = mapNew<String, f64>();
+  let a = mapGet(m, 'a');
+  let b = mapGet(m, 'b');
+  let nested = mapNew<String, JsMap<i32, boolean>>();
+  let inner = mapGet(nested, 'inner');
+  let flag = mapGet(inner, 1);
+
+  let request = id(getRequest());
+  let response = id(getResponse());
+
+  pair<i32, String>(1, 'x');
+  pair<(i32, String), JsMap<String, f64>>((1, 'y'), m);
+  call<(x: i32) => String>((x: i32) => 'z');
+  call<() => void>(() => {});
+  maybe<String | null>(null);
+  return if (flag) a + b else a - b;
+}

@@ -1,4 +1,5 @@
 import { isValidIntrinsic } from '../intrinsics.zena';
+import { parseExternalNameTemplate } from '../external-name.zena';
 import { HashSet, Set } from 'zena:collections';
 import { growable } from 'zena:core';
 import {
@@ -749,6 +750,43 @@ export function validateFunctionDecorators(ctx: CheckerContext, decorators: Grow
   }
 }
 
+/**
+ * A `{T}` in an `@external` name stands for the spelling of `T`'s type
+ * argument at each instantiation (external-name.zena), so every
+ * placeholder must name one of the declaration's type parameters.
+ */
+function checkExternalNameTemplate(ctx: CheckerContext, df: DeclareFunction,
+    typeParams: Array<TypeParameterType> | null) {
+  for (let dec in df.decorators) {
+    if (dec.name != 'external') {
+      continue;
+    }
+    let externalName = decoratorStringArg(dec, 1);
+    if (externalName == null) {
+      continue;
+    }
+    let template = parseExternalNameTemplate(externalName);
+    let templateError = template.error;
+    if (templateError != null) {
+      ctx.error(`${templateError} of '${df.name.name}'.`, DiagnosticCode.TypeMismatch, dec.loc);
+      continue;
+    }
+    for (let hole in template.holes) {
+      var known = false;
+      if (typeParams != null) {
+        for (let tp in typeParams) {
+          if (tp.name == hole) {
+            known = true;
+          }
+        }
+      }
+      if (!known) {
+        ctx.error(`'{${hole}}' in the @external name of '${df.name.name}' names no type parameter.`, DiagnosticCode.TypeMismatch, dec.loc);
+      }
+    }
+  }
+}
+
 // ============================================================================
 // Declare Function (External Declarations)
 // ============================================================================
@@ -758,6 +796,7 @@ export function checkDeclareFunction(ctx: CheckerContext, df: DeclareFunction): 
   ctx.enterScope();
 
   let resolvedTypeParams = resolveTypeParameters(ctx, df.typeParameters);
+  checkExternalNameTemplate(ctx, df, resolvedTypeParams);
 
   // Parameter types.
   let paramTypes = new Array<Type>();

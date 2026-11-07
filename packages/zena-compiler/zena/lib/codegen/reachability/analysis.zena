@@ -29,6 +29,7 @@ import { Referrer, RecordResultCall, ReachabilityContext, SpecializerInterface, 
 import { ClassHierarchyAnalysis } from './hierarchy.zena';
 import { Specializer, applyMixinPrivateScope } from './specialization.zena';
 import { ReachabilityVisitor, TypeLowerer } from './visitor.zena';
+import { externalImportSpec, parseExternalNameTemplate } from '../../external-name.zena';
 import { walkEnter } from '../../visitor.zena';
 import { performance } from '../../time.zena';
 import {
@@ -1377,6 +1378,14 @@ export final class ReachabilityAnalysis implements ReachabilityContext {
           if (len > 0) {
             this.wasm.genericFunctions[id] = initNode;
             this.wasm.genericFunctionModels[id] = model;
+          }
+        } else if (decl is DeclareFunction) {
+          let {typeParameters} = decl;
+          let spec = externalImportSpec(decl);
+          if (typeParameters != null && typeParameters.length > 0 && spec != null) {
+            this.wasm.genericExternals[id] = decl;
+            this.wasm.genericExternalModels[id] = model;
+            this.wasm.genericExternalTemplates[id] = parseExternalNameTemplate(spec.name);
           }
         }
       }

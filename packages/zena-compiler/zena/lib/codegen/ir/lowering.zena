@@ -10703,6 +10703,15 @@ export final class FunctionLowerer {
     // through to the erased template.
     let solvedTargs = this.#solvedCallTypeArguments(call);
     if (solvedTargs != null) {
+      if (this.wasm.genericExternals.has(resolved.id)) {
+        let name = this.wasm.genericExternalName(resolved.id, solvedTargs);
+        let key = this.wasm.externalInstanceKey(resolved.id, name);
+        let instance = if (let (true, f) = this.wasm.externalInstances.get(key)) f else null;
+        if (instance == null) {
+          this.#bail('generic external call');
+        }
+        return this.#lowerSpecializedCall(call, instance, multiOut);
+      }
       let specKey = getSpecializedFunctionKey(
           resolved.name, solvedTargs);
       let specOpt = if (let (true, f) = this.wasm.specializedFunctions.get(specKey)) f else null;
