@@ -1,13 +1,17 @@
 import { growable } from 'zena:core';
 import {
-  CallExpression, Expression, FunctionExpression, Identifier,
+  crossesAsValue, externalImportSpec, irTypeSpelling, parseExternalNameTemplate,
+  twCrossingProblem
+} from '../external-name.zena';
+import {
+  CallExpression, DeclareFunction, Expression, FunctionExpression, Identifier,
   MemberExpression, NewExpression, Node, NullLiteral, SourceLocation,
   StringLiteral, TypeAnnotation
 } from '../ast.zena';
 import {
   ClassType, ErrorType, FunctionType, InterfaceType, NullType, Type,
   TypeParameterType, UnionType as UnionT, baseType, internFunctionType,
-  mentionsTypeParams, requiredParameterCount, typeToString
+  mentionsTypeParams, requiredParameterCount, typeContainsTypeParameter, typeToString
 } from '../types.zena';
 import { DiagnosticCode } from '../diagnostics.zena';
 import { lineAt } from '../line-index.zena';
@@ -429,6 +433,7 @@ export function checkCallExpression(
   // If optional and not nullable, proceed normally.
   // If optional and nullable, wrap result in union with null.
   let resultType = checkCallExpressionInner(ctx, call, baseCalleeType, expectedType);
+  checkTwTypeArguments(ctx, call);
 
   if (isNullable && call.optional) {
     if (isBoxablePrimitive(resultType) &&
@@ -445,6 +450,69 @@ export function checkCallExpression(
   }
 
   return resultType;
+}
+
+/**
+ * A templated `tw` import's type arguments name IR types, so each must
+ * have a spelling, and one whose values cross must cross as the type it
+ * spells (`twCrossingProblem`). One mentioning type parameters is checked
+ * per instantiation, in codegen.
+ */
+function checkTwTypeArguments(ctx: CheckerContext, call: CallExpression): void {
+  let {callee} = call;
+  if (!(callee is Identifier)) {
+    return;
+  }
+  let sym = ctx.model.resolve(callee);
+  if (sym == null) {
+    return;
+  }
+  let decl = sym.resolveTarget().declaration;
+  if (!(decl is DeclareFunction)) {
+    return;
+  }
+  let spec = externalImportSpec(decl);
+  if (spec == null || !spec.isTw) {
+    return;
+  }
+  let template = parseExternalNameTemplate(spec.name);
+  if (template.holes.length == 0 || template.error != null) {
+    return;
+  }
+  let ft = ctx.model.getNodeType(callee);
+  if (!(ft is FunctionType)) {
+    return;
+  }
+  let typeArguments = ft.typeArguments;
+  let generic = ft.genericSource ?? ft;
+  let typeParameters = generic.typeParameters;
+  if (typeArguments == null || typeParameters == null) {
+    return;
+  }
+  let stringType = ctx.tryResolveWellKnownType(WellKnown.StringClass);
+  let isString = (ct: ClassType) => stringType is ClassType && ct.symbolId == stringType.symbolId;
+  for (let hole in template.holes) {
+    for (var i = 0; i < typeParameters.length && i < typeArguments.length; i += 1) {
+      let arg = typeArguments[i];
+      if (typeParameters[i].name != hole || typeContainsTypeParameter(arg)) {
+        continue;
+      }
+      let problem = if (crossesAsValue(hole, generic)) {
+        twCrossingProblem(arg, isString)
+      } else if (irTypeSpelling(arg, isString) == null) {
+        "has no ts-gen IR spelling"
+      } else {
+        null
+      };
+      if (problem != null) {
+        ctx.error(
+          `The type argument '${typeToString(arg)}' for '{${hole}}' of '${callee.name}' ${problem}, so it can't cross a tw import.`,
+          DiagnosticCode.TypeMismatch,
+          call.loc
+        );
+      }
+    }
+  }
 }
 
 /**

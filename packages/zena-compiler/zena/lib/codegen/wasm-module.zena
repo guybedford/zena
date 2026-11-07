@@ -20,7 +20,10 @@ import {
 import { Program, CompilationUnit } from '../program.zena';
 import { stdlibLibraryOf, stdlibLibraryAnswers } from '../stdlib-manifest.zena';
 import { defaultImportedStringConstants, targetUsesJsStrings } from '../targets.zena';
-import { ExternalNameTemplate, renderExternalName } from '../external-name.zena';
+import {
+  ExternalNameTemplate, crossesAsValue, externalImportSpec, renderExternalName,
+  twCrossingProblem
+} from '../external-name.zena';
 
 import {
   compareStrings, ClassKey, InterfaceKey, ClassInterfaceKey, CellKey, ClosureKey, ExportKey, ExportGlobalKey, getClassKey, getClassPrivateFieldKey, isPresentWordName, presentWordCount, presentWordName, FunctionAdaptationKey, getFunctionAdaptationKey, ClassMethodKey, getClassMethodKey, SpecializedFunctionKey, ClosureSpecializationKey, FunctionValueWrapperKey,
@@ -1934,9 +1937,25 @@ export final class WasmModule {
     let decl = this.genericExternals[id];
     let ft = this.genericExternalModels[id].getNodeType(decl) as FunctionType;
     let stringClass = this.stringClass;
+    let isString = (ct: ClassType) => stringClass != null && ct.symbolId == stringClass.symbolId;
+    let spec = externalImportSpec(decl);
+    if (spec != null && spec.isTw) {
+      // The checker reports a concrete call's; this is an instantiation's.
+      let typeParameters = ft.typeParameters;
+      for (let hole in this.genericExternalTemplates[id].holes) {
+        for (var i = 0; typeParameters != null && i < typeParameters.length && i < typeArgs.length; i += 1) {
+          if (typeParameters[i].name != hole || !crossesAsValue(hole, ft)) {
+            continue;
+          }
+          let problem = twCrossingProblem(typeArgs[i], isString);
+          if (problem != null) {
+            throw new Error(`The type argument for '{${hole}}' of '${decl.name.name}' ${problem}, so it can't cross a tw import`);
+          }
+        }
+      }
+    }
     return renderExternalName(this.genericExternalTemplates[id], decl.name.name,
-        ft.typeParameters, typeArgs,
-        (ct) => stringClass != null && ct.symbolId == stringClass.symbolId);
+        ft.typeParameters, typeArgs, isString);
   }
 
   /** The key of the instance of `id` imported under `name`. */

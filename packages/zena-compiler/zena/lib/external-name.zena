@@ -247,6 +247,90 @@ export function irTypeSpelling(t: Type, isString: (ct: ClassType) => boolean): S
 }
 
 /**
+ * Whether a value of type parameter `name` crosses `ft`'s import: as a
+ * parameter or the result, or an element of one. Only spelled, as the
+ * argument of a host class such as `JsPromise<T>`, it can be any type
+ * with a spelling.
+ */
+export function crossesAsValue(name: String, ft: FunctionType): boolean {
+  for (let p in ft.parameters) {
+    if (valueMentions(p, name)) {
+      return true;
+    }
+  }
+  return valueMentions(ft.returnType, name);
+}
+
+function valueMentions(t: Type, name: String): boolean {
+  return match (t) {
+    case TypeParameterType as tp: tp.name == name
+    case ArrayType {elementType}: valueMentions(elementType, name)
+    case ClassType as ct: {
+      let typeArguments = ct.typeArguments;
+      ct.name == "array" && typeArguments != null && typeArguments.length == 1 &&
+          valueMentions(typeArguments[0], name)
+    }
+    case UnionType {types}: valueMentionsAny(types, name)
+    case TupleType {elementTypes}: valueMentionsAny(elementTypes, name)
+    case InlineTupleType {elementTypes}: valueMentionsAny(elementTypes, name)
+    case _: false
+  };
+}
+
+function valueMentionsAny(ts: Array<Type>, name: String): boolean {
+  for (let t in ts) {
+    if (valueMentions(t, name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Why a `tw` import's type argument `t` doesn't cross as the IR type it
+ * spells, or null when it does. A Zena class other than an extension
+ * class is a Zena struct, which the bridge knows nothing of, and a type
+ * with no spelling names no IR type at all.
+ */
+export function twCrossingProblem(t: Type, isString: (ct: ClassType) => boolean): String | null {
+  if (irTypeSpelling(t, isString) == null) {
+    return "has no ts-gen IR spelling";
+  }
+  return structIn(t, isString);
+}
+
+function structIn(t: Type, isString: (ct: ClassType) => boolean): String | null {
+  return match (t) {
+    case ClassType as ct: {
+      if (!ct.isExtension && !isString(ct) && ct.name != "array") {
+        `is the Zena class '${ct.name}', not a host type`
+      } else {
+        let typeArguments = ct.typeArguments;
+        if (typeArguments != null) structInAll(typeArguments, isString) else null
+      }
+    }
+    case ArrayType {elementType}: structIn(elementType, isString)
+    case UnionType {types}: structInAll(types, isString)
+    case TupleType {elementTypes}: structInAll(elementTypes, isString)
+    case InlineTupleType {elementTypes}: structInAll(elementTypes, isString)
+    case TypeAliasType as ta: {
+      if (ta.isDistinct) null else structIn(unwrapAliases(ta), isString)
+    }
+    case _: null
+  };
+}
+
+function structInAll(ts: Array<Type>, isString: (ct: ClassType) => boolean): String | null {
+  for (let t in ts) {
+    let problem = structIn(t, isString);
+    if (problem != null) {
+      return problem;
+    }
+  }
+  return null;
+}
+
+/**
  * `template` with each placeholder replaced by the spelling of its type
  * argument. Throws when a placeholder names none of `typeParameters` or
  * an argument has no IR spelling: the checker reports the first at the
